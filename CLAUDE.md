@@ -15,15 +15,17 @@ Barv is an eww-like Wayland bar for Hyprland, written in V (`vlang` 0.5.1). It u
 
 ## Architecture
 
-All files are in the root `main` module. C interop files use the `.c.v` suffix convention.
+Root files are in the `main` module. Each subdirectory under `modules/` is its own V module, imported by name (e.g., `import bar`). C interop files use the `.c.v` suffix convention.
 
-- `main.v` — GtkApplication lifecycle, activate signal
-- `bar.v` — layer surface setup (anchors, exclusive zone, CSS), left/center/right box layout
+- `main.v` — entry point, GtkApplication lifecycle
 - `config.v` — suckless-style compile-time Config struct
-- `clock.v` — clock label updated via `g_timeout_add`
-- `workspaces.v` — Hyprland workspace display via IPC socket (`.socket2.sock`)
-- `gtk.c.v` — GTK3 C function/struct declarations (`#pkgconfig gtk+-3.0`)
-- `layer_shell.c.v` — gtk-layer-shell C declarations (`#pkgconfig gtk-layer-shell-0`)
+- `modules/gtk/` — GTK3 C bindings (`#pkgconfig gtk+-3.0`)
+- `modules/layershell/` — gtk-layer-shell C bindings (`#pkgconfig gtk-layer-shell-0`)
+- `modules/bar/` — layer surface setup, CSS, left/center/right layout, BarConfig
+- `modules/clock/` — clock label updated via `g_timeout_add`
+- `modules/workspaces/` — Hyprland workspace display via IPC socket (`.socket2.sock`)
+
+Every module that calls GTK C functions must `import gtk` to get the function declarations.
 
 ## C FFI Patterns
 
