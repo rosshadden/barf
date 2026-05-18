@@ -7,14 +7,23 @@ import os
 import widgets.clock
 import widgets.workspaces
 
+pub enum Anchor {
+	left
+	right
+	top
+	bottom
+}
+
 pub struct BarConfig {
 pub:
-	height       int    = 30
-	font_family  string = 'monospace'
-	font_size    string = '10pt'
-	bg_color     string = '#1e1e2e'
-	fg_color     string = '#cdd6f4'
-	active_color string = '#89b4fa'
+	height       int      = 30
+	anchors      []Anchor = [Anchor.left, .right, .top]
+	monitors     []string = []
+	font_family  string   = 'monospace'
+	font_size    string   = '10pt'
+	bg_color     string   = '#1e1e2e'
+	fg_color     string   = '#cdd6f4'
+	active_color string   = '#89b4fa'
 }
 
 struct HyprMon {
@@ -64,6 +73,9 @@ pub fn create(app &C.GtkApplication, cfg BarConfig) {
 		mut rect := C.GdkRectangle{}
 		C.gdk_monitor_get_geometry(gdk_mon, &rect)
 		monitor_name := match_monitor(hypr_monitors, rect.x, rect.y)
+		if cfg.monitors.len > 0 && monitor_name !in cfg.monitors {
+			continue
+		}
 		create_for_monitor(app, cfg, gdk_mon, monitor_name)
 	}
 }
@@ -78,10 +90,10 @@ fn create_for_monitor(app &C.GtkApplication, cfg BarConfig, gdk_mon &C.GdkMonito
 	C.gtk_layer_set_namespace(win, c'barv')
 	C.gtk_layer_set_keyboard_mode(win, layershell.keyboard_mode_none)
 
-	C.gtk_layer_set_anchor(win, layershell.edge_left, 1)
-	C.gtk_layer_set_anchor(win, layershell.edge_right, 1)
-	C.gtk_layer_set_anchor(win, layershell.edge_top, 1)
-	C.gtk_layer_set_anchor(win, layershell.edge_bottom, 0)
+	C.gtk_layer_set_anchor(win, layershell.edge_left, int(Anchor.left in cfg.anchors))
+	C.gtk_layer_set_anchor(win, layershell.edge_right, int(Anchor.right in cfg.anchors))
+	C.gtk_layer_set_anchor(win, layershell.edge_top, int(Anchor.top in cfg.anchors))
+	C.gtk_layer_set_anchor(win, layershell.edge_bottom, int(Anchor.bottom in cfg.anchors))
 
 	C.gtk_layer_auto_exclusive_zone_enable(win)
 	C.gtk_widget_set_size_request(win_widget, -1, cfg.height)

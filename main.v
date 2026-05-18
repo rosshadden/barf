@@ -12,6 +12,16 @@ fn on_activate(app &C.GtkApplication, _ voidptr) {
 		fg_color:     config.fg_color
 		active_color: config.active_ws_color
 	})
+	bar.create(app, bar.BarConfig{
+		height:       config.bar_height
+		anchors:      [bar.Anchor.left, .right, .bottom]
+		monitors:     ['HDMI-A-1']
+		font_family:  config.font_family
+		font_size:    config.font_size
+		bg_color:     config.bg_color
+		fg_color:     config.fg_color
+		active_color: config.active_ws_color
+	})
 }
 
 fn main() {
