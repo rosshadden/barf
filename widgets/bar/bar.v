@@ -4,8 +4,6 @@ import json
 import lib.gtk
 import lib.layershell
 import os
-import widgets.clock
-import widgets.workspaces
 
 pub enum Anchor {
 	left
@@ -14,16 +12,18 @@ pub enum Anchor {
 	bottom
 }
 
+pub type ContentFn = fn (&C.GtkWidget, string)
+
 pub struct BarConfig {
 pub:
-	height       int      = 30
-	anchors      []Anchor = [Anchor.left, .right, .top]
-	monitors     []string = []
-	font_family  string   = 'monospace'
-	font_size    string   = '10pt'
-	bg_color     string   = '#1e1e2e'
-	fg_color     string   = '#cdd6f4'
-	active_color string   = '#89b4fa'
+	height      int       = 30
+	anchors     []Anchor  = [Anchor.left, .right, .top]
+	monitors    []string  = []
+	content     ContentFn = unsafe { nil }
+	font_family string    = 'monospace'
+	font_size   string    = '10pt'
+	bg_color    string    = '#1e1e2e'
+	fg_color    string    = '#cdd6f4'
 }
 
 struct HyprMon {
@@ -98,22 +98,12 @@ fn create_for_monitor(app &C.GtkApplication, cfg BarConfig, gdk_mon &C.GdkMonito
 	C.gtk_layer_auto_exclusive_zone_enable(win)
 	C.gtk_widget_set_size_request(win_widget, -1, cfg.height)
 
-	outer := C.gtk_box_new(gtk.gtk_orientation_horizontal, 0)
+	container := C.gtk_box_new(gtk.gtk_orientation_horizontal, 0)
+	C.gtk_container_add(win_widget, container)
 
-	left := C.gtk_box_new(gtk.gtk_orientation_horizontal, 0)
-	center := C.gtk_box_new(gtk.gtk_orientation_horizontal, 0)
-	right := C.gtk_box_new(gtk.gtk_orientation_horizontal, 0)
+	if cfg.content != unsafe { nil } {
+		cfg.content(container, monitor_name)
+	}
 
-	ws_widget := workspaces.make_widget(cfg.active_color, monitor_name)
-	C.gtk_box_pack_start(left, ws_widget, 0, 0, 0)
-
-	clock_widget := clock.make_widget()
-	C.gtk_box_pack_start(center, clock_widget, 0, 0, 0)
-
-	C.gtk_box_pack_start(outer, left, 0, 0, 0)
-	C.gtk_box_set_center_widget(outer, center)
-	C.gtk_box_pack_end(outer, right, 0, 0, 0)
-
-	C.gtk_container_add(win_widget, outer)
 	C.gtk_widget_show_all(win_widget)
 }
