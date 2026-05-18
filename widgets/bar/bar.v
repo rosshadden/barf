@@ -12,18 +12,19 @@ pub enum Anchor {
 	bottom
 }
 
-pub type ContentFn = fn (&C.GtkWidget, string)
+pub type ContentFn = fn (&C.GtkWidget, string, voidptr)
 
 pub struct BarConfig {
 pub:
-	height      int       = 30
-	anchors     []Anchor  = [Anchor.left, .right, .top]
-	monitors    []string  = []
-	content     ContentFn = unsafe { nil }
-	font_family string    = 'monospace'
-	font_size   string    = '10pt'
-	bg_color    string    = '#1e1e2e'
-	fg_color    string    = '#cdd6f4'
+	height       int       = 30
+	anchors      []Anchor  = [Anchor.left, .right, .top]
+	monitors     []string  = []
+	content      ContentFn = unsafe { nil }
+	content_data voidptr   = unsafe { nil }
+	font_family  string    = 'monospace'
+	font_size    string    = '10pt'
+	bg_color     string    = '#1e1e2e'
+	fg_color     string    = '#cdd6f4'
 }
 
 struct HyprMon {
@@ -102,7 +103,7 @@ fn create_for_monitor(app &C.GtkApplication, cfg BarConfig, gdk_mon &C.GdkMonito
 	C.gtk_container_add(win_widget, container)
 
 	if cfg.content != unsafe { nil } {
-		cfg.content(container, monitor_name)
+		cfg.content(container, monitor_name, cfg.content_data)
 	}
 
 	C.gtk_widget_show_all(win_widget)
