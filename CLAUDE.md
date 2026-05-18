@@ -15,17 +15,17 @@ Barv is an eww-like Wayland bar for Hyprland, written in V (`vlang` 0.5.1). It u
 
 ## Architecture
 
-Root files are in the `main` module. Each subdirectory under `modules/` is its own V module, imported by name (e.g., `import bar`). C interop files use the `.c.v` suffix convention.
+Root files are in the `main` module. C FFI bindings live under `lib/`, bar widgets under `widgets/`. Modules are imported by path (e.g., `import lib.gtk`, `import widgets.bar`). C interop files use the `.c.v` suffix convention.
 
 - `main.v` — entry point, GtkApplication lifecycle
 - `config.v` — suckless-style compile-time Config struct
-- `modules/gtk/` — GTK3 C bindings (`#pkgconfig gtk+-3.0`)
-- `modules/layershell/` — gtk-layer-shell C bindings (`#pkgconfig gtk-layer-shell-0`)
-- `modules/bar/` — layer surface setup, CSS, left/center/right layout, BarConfig
-- `modules/clock/` — clock label updated via `g_timeout_add`
-- `modules/workspaces/` — Hyprland workspace display via IPC socket (`.socket2.sock`)
+- `lib/gtk/` — GTK3 C bindings (`#pkgconfig gtk+-3.0`)
+- `lib/layershell/` — gtk-layer-shell C bindings (`#pkgconfig gtk-layer-shell-0`)
+- `widgets/bar/` — layer surface setup, CSS, per-monitor window creation, BarConfig
+- `widgets/clock/` — clock label updated via `g_timeout_add`
+- `widgets/workspaces/` — per-monitor Hyprland workspace display via IPC socket (`.socket2.sock`)
 
-Every module that calls GTK C functions must `import gtk` to get the function declarations.
+Every module that calls GTK C functions must `import lib.gtk` to get the function declarations.
 
 ## C FFI Patterns
 

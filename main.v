@@ -1,7 +1,7 @@
 module main
 
-import bar
-import gtk
+import lib.gtk
+import widgets.bar
 
 fn on_activate(app &C.GtkApplication, _ voidptr) {
 	bar.create(app, bar.BarConfig{
