@@ -1,32 +1,39 @@
 module main
 
 import lib.gtk
+import providers
+import vars
 import widgets.bar
-import widgets.clock
-import widgets.memory
+import widgets.label
 import widgets.workspaces
+
+struct AppData {
+	config Config
+	store  &vars.VarStore
+}
 
 fn content_fn(container &C.GtkWidget, monitor_name string, data voidptr) {
 	cd := unsafe { &ContentData(data) }
+	store := unsafe { &vars.VarStore(cd.store) }
 
 	left_box := C.gtk_box_new(gtk.gtk_orientation_horizontal, 0)
 	center_box := C.gtk_box_new(gtk.gtk_orientation_horizontal, 0)
 	right_box := C.gtk_box_new(gtk.gtk_orientation_horizontal, 0)
 
 	for w in cd.left {
-		widget := make_widget(w, monitor_name)
+		widget := make_widget(w, monitor_name, store)
 		if widget != unsafe { nil } {
 			C.gtk_box_pack_start(left_box, widget, 0, 0, 0)
 		}
 	}
 	for w in cd.center {
-		widget := make_widget(w, monitor_name)
+		widget := make_widget(w, monitor_name, store)
 		if widget != unsafe { nil } {
 			C.gtk_box_pack_start(center_box, widget, 0, 0, 0)
 		}
 	}
 	for w in cd.right {
-		widget := make_widget(w, monitor_name)
+		widget := make_widget(w, monitor_name, store)
 		if widget != unsafe { nil } {
 			C.gtk_box_pack_start(right_box, widget, 0, 0, 0)
 		}
@@ -37,13 +44,10 @@ fn content_fn(container &C.GtkWidget, monitor_name string, data voidptr) {
 	C.gtk_box_pack_end(container, right_box, 0, 0, 0)
 }
 
-fn make_widget(desc WidgetDesc, monitor_name string) &C.GtkWidget {
+fn make_widget(desc WidgetDesc, monitor_name string, store &vars.VarStore) &C.GtkWidget {
 	return match desc.kind {
-		'clock' {
-			clock.make_widget()
-		}
-		'memory' {
-			memory.make_widget()
+		'label' {
+			label.make_widget(desc.text, store)
 		}
 		'workspaces' {
 			workspaces.make_widget(desc.active_color, monitor_name)
@@ -56,14 +60,15 @@ fn make_widget(desc WidgetDesc, monitor_name string) &C.GtkWidget {
 }
 
 fn on_activate(app &C.GtkApplication, data voidptr) {
-	descs := unsafe { &[]BarDesc(data) }
+	ad := unsafe { &AppData(data) }
 	mut content_refs := []&ContentData{}
 
-	for desc in descs {
+	for desc in ad.config.bars {
 		cd := &ContentData{
 			left:   desc.left
 			center: desc.center
 			right:  desc.right
+			store:  voidptr(ad.store)
 		}
 		content_refs << cd
 
@@ -95,11 +100,30 @@ fn on_activate(app &C.GtkApplication, data voidptr) {
 }
 
 fn main() {
-	descs := load_config()
+	cfg := load_config()
+	mut store := &vars.VarStore{}
+
+	providers.start_time(store)
+
+	for b in cfg.builtins {
+		match b.kind {
+			'cpu' { providers.start_cpu(store, b.interval) }
+			'ram' { providers.start_ram(store, b.interval) }
+			else {}
+		}
+	}
+
+	for p in cfg.polls {
+		providers.start_poll(p.name, p.command, p.interval, store)
+	}
+
+	ad := &AppData{
+		config: cfg
+		store:  store
+	}
 
 	app := C.gtk_application_new(c'io.vbar', 0)
-	C.g_signal_connect_data(app, c'activate', voidptr(on_activate), voidptr(&descs),
-		unsafe { nil }, 0)
+	C.g_signal_connect_data(app, c'activate', voidptr(on_activate), voidptr(ad), unsafe { nil }, 0)
 	status := C.g_application_run(app, 0, unsafe { nil })
 	C.g_object_unref(app)
 	exit(status)

@@ -67,6 +67,11 @@ pub fn C.lua_touserdata(L &C.lua_State, idx int) voidptr
 // Read functions (real functions underlying macros)
 pub fn C.lua_tolstring(L &C.lua_State, idx int, len voidptr) &char
 pub fn C.lua_tointegerx(L &C.lua_State, idx int, isnum voidptr) i64
+pub fn C.lua_tonumberx(L &C.lua_State, idx int, isnum voidptr) f64
+
+// Push functions (numeric)
+pub fn C.lua_pushinteger(L &C.lua_State, n i64)
+pub fn C.lua_pushnumber(L &C.lua_State, n f64)
 
 // Call/load
 pub fn C.lua_pcallk(L &C.lua_State, nargs int, nresults int, errfunc int, ctx i64, k voidptr) int

@@ -6,6 +6,7 @@ import os
 struct WidgetDesc {
 	kind         string
 	active_color string = '#89b4fa'
+	text         string
 }
 
 struct BarDesc {
@@ -21,15 +22,35 @@ struct BarDesc {
 	right       []WidgetDesc
 }
 
+struct PollDesc {
+	name     string
+	command  string
+	interval int = 1
+}
+
+struct BuiltinDesc {
+	kind     string
+	interval int = 2
+}
+
+struct Config {
+	bars     []BarDesc
+	polls    []PollDesc
+	builtins []BuiltinDesc
+}
+
 struct ContentData {
 	left   []WidgetDesc
 	center []WidgetDesc
 	right  []WidgetDesc
+	store  voidptr
 }
 
-struct BarDescsAccum {
+struct ConfigAccum {
 mut:
-	descs []BarDesc
+	bars     []BarDesc
+	polls    []PollDesc
+	builtins []BuiltinDesc
 }
 
 fn read_string_field(l &C.lua_State, tbl_idx int, key &char, default_ string) string {
@@ -91,10 +112,12 @@ fn read_widget_list(l &C.lua_State, tbl_idx int, key &char) []WidgetDesc {
 			widget_tbl := C.lua_gettop(l)
 			kind := read_string_field(l, widget_tbl, c'type', '')
 			active_color := read_string_field(l, widget_tbl, c'active_color', '#89b4fa')
+			text := read_string_field(l, widget_tbl, c'text', '')
 			if kind != '' {
 				result << WidgetDesc{
 					kind:         kind
 					active_color: active_color
+					text:         text
 				}
 			}
 		}
@@ -104,11 +127,11 @@ fn read_widget_list(l &C.lua_State, tbl_idx int, key &char) []WidgetDesc {
 	return result
 }
 
-fn get_bar_descs_accum(l &C.lua_State) &BarDescsAccum {
-	C.lua_getfield(l, lua.lua_registryindex, c'vbar.bar_descs')
+fn get_config_accum(l &C.lua_State) &ConfigAccum {
+	C.lua_getfield(l, lua.lua_registryindex, c'vbar.config')
 	ptr := C.lua_touserdata(l, -1)
 	lua.lua_pop(l, 1)
-	return unsafe { &BarDescsAccum(ptr) }
+	return unsafe { &ConfigAccum(ptr) }
 }
 
 fn lua_bar_fn(l &C.lua_State) int {
@@ -128,22 +151,23 @@ fn lua_bar_fn(l &C.lua_State) int {
 		center:      read_widget_list(l, 1, c'center')
 		right:       read_widget_list(l, 1, c'right')
 	}
-	mut accum := get_bar_descs_accum(l)
-	accum.descs << desc
+	mut accum := get_config_accum(l)
+	accum.bars << desc
 	return 0
 }
 
-fn lua_clock_fn(l &C.lua_State) int {
-	C.lua_createtable(l, 0, 1)
-	C.lua_pushstring(l, c'clock')
+fn lua_label_fn(l &C.lua_State) int {
+	if C.lua_type(l, 1) != lua.lua_tstring {
+		C.luaL_error(l, c'vbar.label: expected string template')
+		return 0
+	}
+	raw := C.lua_tolstring(l, 1, unsafe { nil })
+	text := unsafe { cstring_to_vstring(raw) }
+	C.lua_createtable(l, 0, 2)
+	C.lua_pushstring(l, c'label')
 	C.lua_setfield(l, -2, c'type')
-	return 1
-}
-
-fn lua_memory_fn(l &C.lua_State) int {
-	C.lua_createtable(l, 0, 1)
-	C.lua_pushstring(l, c'memory')
-	C.lua_setfield(l, -2, c'type')
+	C.lua_pushstring(l, text.str)
+	C.lua_setfield(l, -2, c'text')
 	return 1
 }
 
@@ -169,37 +193,93 @@ fn lua_workspaces_fn(l &C.lua_State) int {
 	return 1
 }
 
+fn lua_poll_fn(l &C.lua_State) int {
+	if C.lua_type(l, 1) != lua.lua_tstring || C.lua_type(l, 2) != lua.lua_ttable {
+		C.luaL_error(l, c'vbar.poll: expected (name, {command, interval})')
+		return 0
+	}
+	raw_name := C.lua_tolstring(l, 1, unsafe { nil })
+	name := unsafe { cstring_to_vstring(raw_name) }
+	command := read_string_field(l, 2, c'command', '')
+	interval := read_int_field(l, 2, c'interval', 1)
+	if name == '' || command == '' {
+		C.luaL_error(l, c'vbar.poll: name and command required')
+		return 0
+	}
+	mut accum := get_config_accum(l)
+	accum.polls << PollDesc{
+		name:     name
+		command:  command
+		interval: interval
+	}
+	return 0
+}
+
+fn lua_cpu_fn(l &C.lua_State) int {
+	interval := if C.lua_type(l, 1) == lua.lua_ttable {
+		read_int_field(l, 1, c'interval', 2)
+	} else {
+		2
+	}
+	mut accum := get_config_accum(l)
+	accum.builtins << BuiltinDesc{
+		kind:     'cpu'
+		interval: interval
+	}
+	return 0
+}
+
+fn lua_ram_fn(l &C.lua_State) int {
+	interval := if C.lua_type(l, 1) == lua.lua_ttable {
+		read_int_field(l, 1, c'interval', 2)
+	} else {
+		2
+	}
+	mut accum := get_config_accum(l)
+	accum.builtins << BuiltinDesc{
+		kind:     'ram'
+		interval: interval
+	}
+	return 0
+}
+
 fn open_vbar_module(l &C.lua_State) int {
-	C.lua_createtable(l, 0, 4)
+	C.lua_createtable(l, 0, 6)
 
 	C.lua_pushcclosure(l, voidptr(lua_bar_fn), 0)
 	C.lua_setfield(l, -2, c'bar')
 
-	C.lua_pushcclosure(l, voidptr(lua_clock_fn), 0)
-	C.lua_setfield(l, -2, c'clock')
-
-	C.lua_pushcclosure(l, voidptr(lua_memory_fn), 0)
-	C.lua_setfield(l, -2, c'memory')
+	C.lua_pushcclosure(l, voidptr(lua_label_fn), 0)
+	C.lua_setfield(l, -2, c'label')
 
 	C.lua_pushcclosure(l, voidptr(lua_workspaces_fn), 0)
 	C.lua_setfield(l, -2, c'workspaces')
 
+	C.lua_pushcclosure(l, voidptr(lua_poll_fn), 0)
+	C.lua_setfield(l, -2, c'poll')
+
+	C.lua_pushcclosure(l, voidptr(lua_cpu_fn), 0)
+	C.lua_setfield(l, -2, c'cpu')
+
+	C.lua_pushcclosure(l, voidptr(lua_ram_fn), 0)
+	C.lua_setfield(l, -2, c'ram')
+
 	return 1
 }
 
-fn load_config() []BarDesc {
+fn load_config() Config {
 	xdg := os.getenv('XDG_CONFIG_HOME')
 	config_dir := if xdg != '' { xdg } else { os.join_path(os.home_dir(), '.config') }
 	config_path := os.join_path(config_dir, 'vbar', 'init.lua')
 
 	if !os.exists(config_path) {
-		return default_bar_descs()
+		return default_config()
 	}
 
 	l := C.luaL_newstate()
 	if l == unsafe { nil } {
 		eprintln('vbar: failed to create Lua state')
-		return default_bar_descs()
+		return default_config()
 	}
 	defer {
 		C.lua_close(l)
@@ -207,9 +287,9 @@ fn load_config() []BarDesc {
 
 	C.luaL_openlibs(l)
 
-	mut accum := BarDescsAccum{}
+	mut accum := ConfigAccum{}
 	C.lua_pushlightuserdata(l, voidptr(&accum))
-	C.lua_setfield(l, lua.lua_registryindex, c'vbar.bar_descs')
+	C.lua_setfield(l, lua.lua_registryindex, c'vbar.config')
 
 	C.luaL_requiref(l, c'vbar', voidptr(open_vbar_module), 0)
 	lua.lua_pop(l, 1)
@@ -219,7 +299,7 @@ fn load_config() []BarDesc {
 		raw := C.lua_tolstring(l, -1, unsafe { nil })
 		err := unsafe { cstring_to_vstring(raw) }
 		eprintln('vbar: config syntax error: ${err}')
-		return default_bar_descs()
+		return default_config()
 	}
 
 	call_status := C.lua_pcallk(l, 0, lua.lua_multret, 0, 0, unsafe { nil })
@@ -227,21 +307,28 @@ fn load_config() []BarDesc {
 		raw := C.lua_tolstring(l, -1, unsafe { nil })
 		err := unsafe { cstring_to_vstring(raw) }
 		eprintln('vbar: config runtime error: ${err}')
-		return default_bar_descs()
+		return default_config()
 	}
 
-	return accum.descs
+	return Config{
+		bars:     accum.bars
+		polls:    accum.polls
+		builtins: accum.builtins
+	}
 }
 
-fn default_bar_descs() []BarDesc {
-	return [
-		BarDesc{
-			left:   [WidgetDesc{
-				kind: 'workspaces'
-			}]
-			center: [WidgetDesc{
-				kind: 'clock'
-			}]
-		},
-	]
+fn default_config() Config {
+	return Config{
+		bars: [
+			BarDesc{
+				left:   [WidgetDesc{
+					kind: 'workspaces'
+				}]
+				center: [WidgetDesc{
+					kind: 'label'
+					text: '\x24{time}'
+				}]
+			},
+		]
+	}
 }
