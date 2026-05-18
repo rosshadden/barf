@@ -3,19 +3,11 @@ module clock
 import lib.gtk
 import time
 
-struct ClockState {
-mut:
-	label &C.GtkWidget = unsafe { nil }
-}
-
 pub fn make_widget() &C.GtkWidget {
 	label := C.gtk_label_new(c'')
 	C.gtk_widget_set_name(label, c'clock')
 	update_label(label)
-	state := &ClockState{
-		label: label
-	}
-	C.g_timeout_add(1000, voidptr(tick), state)
+	C.g_timeout_add(1000, voidptr(tick), label)
 	return label
 }
 
@@ -26,7 +18,7 @@ fn update_label(label &C.GtkWidget) {
 }
 
 fn tick(data voidptr) int {
-	state := unsafe { &ClockState(data) }
-	update_label(state.label)
+	label := unsafe { &C.GtkWidget(data) }
+	update_label(label)
 	return 1
 }
