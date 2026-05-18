@@ -68,7 +68,7 @@ fn poll(mut state WorkspaceState) {
 fn render(state &WorkspaceState) {
 	mut parts := []string{}
 	for ws in state.workspaces {
-		if ws.id < 0 {
+		if ws.id < 0 && ws.name.contains('special:') {
 			continue
 		}
 		if ws.id == state.active_id {
