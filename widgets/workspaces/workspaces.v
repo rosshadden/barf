@@ -87,7 +87,7 @@ fn watch(mut state WorkspaceState) {
 	sock_path := '${runtime}/hypr/${instance}/.socket2.sock'
 
 	mut conn := unix.connect_stream(sock_path) or {
-		eprintln('barv: hyprland socket: ${err}')
+		eprintln('vbar: hyprland socket: ${err}')
 		return
 	}
 	conn.set_read_timeout(time.infinite)

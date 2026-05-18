@@ -87,7 +87,7 @@ fn create_for_monitor(app &C.GtkApplication, cfg BarConfig, gdk_mon &C.GdkMonito
 	C.gtk_layer_init_for_window(win)
 	C.gtk_layer_set_monitor(win, gdk_mon)
 	C.gtk_layer_set_layer(win, layershell.layer_top)
-	C.gtk_layer_set_namespace(win, c'barv')
+	C.gtk_layer_set_namespace(win, c'vbar')
 	C.gtk_layer_set_keyboard_mode(win, layershell.keyboard_mode_none)
 
 	C.gtk_layer_set_anchor(win, layershell.edge_left, int(Anchor.left in cfg.anchors))

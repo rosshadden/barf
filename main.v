@@ -46,7 +46,7 @@ fn on_activate(app &C.GtkApplication, _ voidptr) {
 }
 
 fn main() {
-	app := C.gtk_application_new(c'io.barv', 0)
+	app := C.gtk_application_new(c'io.vbar', 0)
 	C.g_signal_connect_data(app, c'activate', voidptr(on_activate), unsafe { nil }, unsafe { nil },
 		0)
 	status := C.g_application_run(app, 0, unsafe { nil })

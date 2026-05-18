@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Barv is an eww-like Wayland bar for Hyprland, written in V (`vlang` 0.5.1). It uses GTK3 + gtk-layer-shell via V's C FFI to render a layer surface anchored to the top of the screen.
+Vbar is an eww-like Wayland bar for Hyprland, written in V (`vlang` 0.5.1). It uses GTK3 + gtk-layer-shell via V's C FFI to render a layer surface anchored to the top of the screen.
 
 ## Commands
 
-- **Build:** `v .` (produces `barv` binary)
+- **Build:** `v .` (produces `vbar` binary)
 - **Run:** `v run .`
 - **Test:** `v test .`
 - **Format:** `v fmt -w .`
