@@ -7,6 +7,8 @@ struct LabelState {
 	gtk_label &C.GtkWidget
 	tmpl      vars.Template
 	store     &vars.VarStore
+	gen       &vars.Generation = unsafe { nil }
+	my_gen    int
 }
 
 fn render(state &LabelState) {
@@ -16,10 +18,13 @@ fn render(state &LabelState) {
 
 fn on_var_change(data voidptr) {
 	state := unsafe { &LabelState(data) }
+	if state.gen != unsafe { nil } && state.gen.value != state.my_gen {
+		return
+	}
 	render(state)
 }
 
-pub fn make_widget(template_str string, store &vars.VarStore) &C.GtkWidget {
+pub fn make_widget(template_str string, store &vars.VarStore, gen &vars.Generation) &C.GtkWidget {
 	lbl := C.gtk_label_new(c'')
 	C.gtk_widget_set_name(lbl, c'label')
 	tmpl := vars.parse_template(template_str)
@@ -27,6 +32,8 @@ pub fn make_widget(template_str string, store &vars.VarStore) &C.GtkWidget {
 		gtk_label: lbl
 		tmpl:      tmpl
 		store:     store
+		gen:       gen
+		my_gen:    gen.value
 	}
 	for name in tmpl.var_names() {
 		unsafe {

@@ -130,6 +130,18 @@ pub fn C.gdk_display_get_n_monitors(display &C.GdkDisplay) int
 pub fn C.gdk_display_get_monitor(display &C.GdkDisplay, monitor_num int) &C.GdkMonitor
 pub fn C.gdk_monitor_get_geometry(monitor &C.GdkMonitor, geometry &C.GdkRectangle)
 
+// GList
+@[typedef]
+pub struct C.GList {
+pub:
+	data voidptr
+	next &C.GList
+	prev &C.GList
+}
+
+// Application windows
+pub fn C.gtk_application_get_windows(app &C.GtkApplication) &C.GList
+
 // GLib timers and idle
 pub fn C.g_timeout_add(interval u32, func voidptr, data voidptr) u32
 pub fn C.g_idle_add(func voidptr, data voidptr) u32

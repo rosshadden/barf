@@ -1,6 +1,7 @@
 module main
 
 import lib.gtk
+import lib.inotify
 import providers
 import vars
 import widgets.bar
@@ -8,34 +9,37 @@ import widgets.label
 import widgets.workspaces
 
 struct AppData {
-	config Config
-	store  &vars.VarStore
 mut:
-	refs []voidptr
+	config Config
+	refs   []voidptr
+	app    &C.GtkApplication = unsafe { nil }
+	store  &vars.VarStore    = unsafe { nil }
+	gen    &vars.Generation  = unsafe { nil }
 }
 
 fn content_fn(container &C.GtkWidget, monitor_name string, data voidptr) {
 	cd := unsafe { &ContentData(data) }
 	store := unsafe { &vars.VarStore(cd.store) }
+	gen := unsafe { &vars.Generation(cd.gen) }
 
 	left_box := C.gtk_box_new(gtk.gtk_orientation_horizontal, 0)
 	center_box := C.gtk_box_new(gtk.gtk_orientation_horizontal, 0)
 	right_box := C.gtk_box_new(gtk.gtk_orientation_horizontal, 0)
 
 	for w in cd.left {
-		widget := make_widget(w, monitor_name, store, cd.shell)
+		widget := make_widget(w, monitor_name, store, cd.shell, gen)
 		if widget != unsafe { nil } {
 			C.gtk_box_pack_start(left_box, widget, 0, 0, 0)
 		}
 	}
 	for w in cd.center {
-		widget := make_widget(w, monitor_name, store, cd.shell)
+		widget := make_widget(w, monitor_name, store, cd.shell, gen)
 		if widget != unsafe { nil } {
 			C.gtk_box_pack_start(center_box, widget, 0, 0, 0)
 		}
 	}
 	for w in cd.right {
-		widget := make_widget(w, monitor_name, store, cd.shell)
+		widget := make_widget(w, monitor_name, store, cd.shell, gen)
 		if widget != unsafe { nil } {
 			C.gtk_box_pack_start(right_box, widget, 0, 0, 0)
 		}
@@ -46,14 +50,14 @@ fn content_fn(container &C.GtkWidget, monitor_name string, data voidptr) {
 	C.gtk_box_pack_end(container, right_box, 0, 0, 0)
 }
 
-fn make_widget(desc WidgetDesc, monitor_name string, store &vars.VarStore, shell []string) &C.GtkWidget {
+fn make_widget(desc WidgetDesc, monitor_name string, store &vars.VarStore, shell []string, gen &vars.Generation) &C.GtkWidget {
 	return match desc.kind {
 		'label' {
-			label.make_widget(desc.text, store)
+			label.make_widget(desc.text, store, gen)
 		}
 		'workspaces' {
 			workspaces.make_widget(desc.active_color, monitor_name, desc.on_click,
-				desc.on_right_click, desc.on_middle_click, shell)
+				desc.on_right_click, desc.on_middle_click, shell, gen)
 		}
 		else {
 			eprintln('vbar: unknown widget type: ${desc.kind}')
@@ -62,17 +66,33 @@ fn make_widget(desc WidgetDesc, monitor_name string, store &vars.VarStore, shell
 	}
 }
 
-fn on_activate(app &C.GtkApplication, data voidptr) {
-	mut ad := unsafe { &AppData(data) }
-	default_shell := if ad.config.shell.len > 0 { ad.config.shell } else { ['sh', '-c'] }
-	mut content_refs := []&ContentData{}
+fn setup(mut ad AppData) {
+	cfg := ad.config
+	default_shell := if cfg.shell.len > 0 { cfg.shell } else { ['sh', '-c'] }
 
-	for desc in ad.config.bars {
+	providers.start_time(ad.store, ad.gen)
+
+	for b in cfg.builtins {
+		match b.kind {
+			'cpu' { providers.start_cpu(ad.store, b.interval, ad.gen) }
+			'ram' { providers.start_ram(ad.store, b.interval, ad.gen) }
+			else {}
+		}
+	}
+
+	for p in cfg.polls {
+		shell := if p.shell.len > 0 { p.shell } else { default_shell }
+		providers.start_poll(p.name, p.command, p.interval, shell, ad.store, ad.gen)
+	}
+
+	mut content_refs := []&ContentData{}
+	for desc in cfg.bars {
 		cd := &ContentData{
 			left:   desc.left
 			center: desc.center
 			right:  desc.right
 			store:  voidptr(ad.store)
+			gen:    voidptr(ad.gen)
 			shell:  default_shell
 		}
 		content_refs << cd
@@ -89,7 +109,7 @@ fn on_activate(app &C.GtkApplication, data voidptr) {
 			anchors = [bar.Anchor.left, .right, .top]
 		}
 
-		event_refs := bar.create(app, bar.BarConfig{
+		event_refs := bar.create(ad.app, bar.BarConfig{
 			height:       desc.height
 			anchors:      anchors
 			monitors:     desc.monitors
@@ -110,30 +130,85 @@ fn on_activate(app &C.GtkApplication, data voidptr) {
 	_ = content_refs
 }
 
-fn main() {
-	cfg := load_config()
-	mut store := &vars.VarStore{}
+fn do_reload(data voidptr) int {
+	mut ad := unsafe { &AppData(data) }
+	ad.gen.value++
 
-	providers.start_time(store)
+	mut node := C.gtk_application_get_windows(ad.app)
+	mut windows := []&C.GtkWidget{}
+	for node != unsafe { nil } {
+		windows << unsafe { &C.GtkWidget(node.data) }
+		node = node.next
+	}
+	for w in windows {
+		C.gtk_widget_destroy(w)
+	}
 
-	for b in cfg.builtins {
-		match b.kind {
-			'cpu' { providers.start_cpu(store, b.interval) }
-			'ram' { providers.start_ram(store, b.interval) }
-			else {}
+	unsafe {
+		mut store := ad.store
+		store.clear()
+	}
+	ad.config = load_config()
+	ad.refs = []
+	setup(mut ad)
+	return 0
+}
+
+fn on_activate(app &C.GtkApplication, data voidptr) {
+	mut ad := unsafe { &AppData(data) }
+	unsafe {
+		ad.app = app
+	}
+	setup(mut ad)
+}
+
+fn watch_config(dir string, data voidptr) {
+	fd := C.inotify_init1(inotify.in_cloexec)
+	if fd < 0 {
+		eprintln('vbar: inotify_init1 failed')
+		return
+	}
+	wd := C.inotify_add_watch(fd, dir.str,
+		inotify.in_close_write | inotify.in_moved_to | inotify.in_create)
+	if wd < 0 {
+		eprintln('vbar: inotify_add_watch failed for ${dir}')
+		C.close(fd)
+		return
+	}
+
+	buf := []u8{len: 4096}
+	mut pending := false
+	for {
+		mut rs := C.fd_set{}
+		C.FD_ZERO(&rs)
+		C.FD_SET(fd, &rs)
+		mut tv := C.timeval{
+			tv_sec:  0
+			tv_usec: 200000
+		}
+		n := C.select(fd + 1, &rs, unsafe { nil }, unsafe { nil }, &tv)
+		if n > 0 && C.FD_ISSET(fd, &rs) != 0 {
+			C.read(fd, buf.data, usize(buf.len))
+			pending = true
+		} else if n == 0 && pending {
+			C.g_idle_add(voidptr(do_reload), data)
+			pending = false
 		}
 	}
+}
 
-	default_shell := if cfg.shell.len > 0 { cfg.shell } else { ['sh', '-c'] }
-	for p in cfg.polls {
-		shell := if p.shell.len > 0 { p.shell } else { default_shell }
-		providers.start_poll(p.name, p.command, p.interval, shell, store)
-	}
+fn main() {
+	cfg := load_config()
+	store := &vars.VarStore{}
+	gen := &vars.Generation{}
 
-	ad := &AppData{
+	mut ad := &AppData{
 		config: cfg
 		store:  store
+		gen:    gen
 	}
+
+	spawn watch_config(config_dir(), voidptr(ad))
 
 	app := C.gtk_application_new(c'io.vbar', 0)
 	C.g_signal_connect_data(app, c'activate', voidptr(on_activate), voidptr(ad), unsafe { nil }, 0)

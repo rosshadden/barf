@@ -39,9 +39,11 @@ fn run_command(shell []string, command string) os.Result {
 	}
 }
 
-fn run_poll(name string, command string, interval int, shell []string, store &vars.VarStore) {
-	env := os.environ()
+fn run_poll(name string, command string, interval int, shell []string, store &vars.VarStore, gen &vars.Generation, my_gen int) {
 	for {
+		if gen.value != my_gen {
+			return
+		}
 		result := run_command(shell, command)
 		value := if result.exit_code == 0 {
 			result.output.trim_space()
@@ -58,6 +60,6 @@ fn run_poll(name string, command string, interval int, shell []string, store &va
 	}
 }
 
-pub fn start_poll(name string, command string, interval int, shell []string, store &vars.VarStore) {
-	spawn run_poll(name, command, interval, shell, store)
+pub fn start_poll(name string, command string, interval int, shell []string, store &vars.VarStore, gen &vars.Generation) {
+	spawn run_poll(name, command, interval, shell, store, gen, gen.value)
 }

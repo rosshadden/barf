@@ -10,6 +10,8 @@ mut:
 	prev_total u64
 	has_prev   bool
 	store      &vars.VarStore
+	gen        &vars.Generation
+	my_gen     int
 }
 
 fn read_cpu_stat() (u64, u64) {
@@ -34,6 +36,9 @@ fn read_cpu_stat() (u64, u64) {
 
 fn tick_cpu(data voidptr) int {
 	mut state := unsafe { &CpuState(data) }
+	if state.gen.value != state.my_gen {
+		return 0
+	}
 	idle, total := read_cpu_stat()
 	if state.has_prev {
 		diff_idle := idle - state.prev_idle
@@ -53,9 +58,11 @@ fn tick_cpu(data voidptr) int {
 	return 1
 }
 
-pub fn start_cpu(store &vars.VarStore, interval int) {
+pub fn start_cpu(store &vars.VarStore, interval int, gen &vars.Generation) {
 	mut state := &CpuState{
-		store: store
+		store:  store
+		gen:    gen
+		my_gen: gen.value
 	}
 	unsafe {
 		mut s := store

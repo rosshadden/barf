@@ -5,7 +5,9 @@ import os
 import vars
 
 struct RamState {
-	store &vars.VarStore
+	store  &vars.VarStore
+	gen    &vars.Generation
+	my_gen int
 }
 
 fn read_meminfo() (u64, u64) {
@@ -27,6 +29,9 @@ fn read_meminfo() (u64, u64) {
 
 fn tick_ram(data voidptr) int {
 	state := unsafe { &RamState(data) }
+	if state.gen.value != state.my_gen {
+		return 0
+	}
 	total, available := read_meminfo()
 	if total > 0 {
 		used_mb := (total - available) / 1024
@@ -42,9 +47,11 @@ fn tick_ram(data voidptr) int {
 	return 1
 }
 
-pub fn start_ram(store &vars.VarStore, interval int) {
+pub fn start_ram(store &vars.VarStore, interval int, gen &vars.Generation) {
 	state := &RamState{
-		store: store
+		store:  store
+		gen:    gen
+		my_gen: gen.value
 	}
 	unsafe {
 		mut s := store

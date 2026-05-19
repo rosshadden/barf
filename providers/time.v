@@ -5,11 +5,16 @@ import time
 import vars
 
 struct TimeState {
-	store &vars.VarStore
+	store  &vars.VarStore
+	gen    &vars.Generation
+	my_gen int
 }
 
 fn tick_time(data voidptr) int {
 	state := unsafe { &TimeState(data) }
+	if state.gen.value != state.my_gen {
+		return 0
+	}
 	now := time.now()
 	time_str := '${now.hour:02}:${now.minute:02}:${now.second:02}'
 	date_str := '${now.year}-${now.month:02}-${now.day:02}'
@@ -21,9 +26,11 @@ fn tick_time(data voidptr) int {
 	return 1
 }
 
-pub fn start_time(store &vars.VarStore) {
+pub fn start_time(store &vars.VarStore, gen &vars.Generation) {
 	state := &TimeState{
-		store: store
+		store:  store
+		gen:    gen
+		my_gen: gen.value
 	}
 	unsafe {
 		mut s := store

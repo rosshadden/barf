@@ -5,6 +5,7 @@ import json
 import net.unix
 import os
 import time
+import vars
 
 struct HyprWorkspace {
 	id      int
@@ -38,9 +39,11 @@ mut:
 	on_middle_click string
 	shell           []string
 	refs            []&WsClickState
+	gen             &vars.Generation = unsafe { nil }
+	my_gen          int
 }
 
-pub fn make_widget(active_color string, monitor_name string, on_click string, on_right_click string, on_middle_click string, shell []string) &C.GtkWidget {
+pub fn make_widget(active_color string, monitor_name string, on_click string, on_right_click string, on_middle_click string, shell []string, gen &vars.Generation) &C.GtkWidget {
 	container := C.gtk_box_new(gtk.gtk_orientation_horizontal, 4)
 	C.gtk_widget_set_name(container, c'workspaces')
 
@@ -52,6 +55,8 @@ pub fn make_widget(active_color string, monitor_name string, on_click string, on
 		on_right_click:  on_right_click
 		on_middle_click: on_middle_click
 		shell:           shell
+		gen:             gen
+		my_gen:          gen.value
 	}
 	poll(mut state)
 	render(mut state)
@@ -170,6 +175,9 @@ fn handle_event(line string) bool {
 
 fn idle_update(data voidptr) int {
 	mut state := unsafe { &WorkspaceState(data) }
+	if state.gen != unsafe { nil } && state.gen.value != state.my_gen {
+		return 0
+	}
 	poll(mut state)
 	render(mut state)
 	return 0

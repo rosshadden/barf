@@ -55,6 +55,7 @@ struct ContentData {
 	center []WidgetDesc
 	right  []WidgetDesc
 	store  voidptr
+	gen    voidptr
 	shell  []string
 }
 
@@ -323,10 +324,14 @@ fn open_vbar_module(l &C.lua_State) int {
 	return 1
 }
 
-fn load_config() Config {
+fn config_dir() string {
 	xdg := os.getenv('XDG_CONFIG_HOME')
-	config_dir := if xdg != '' { xdg } else { os.join_path(os.home_dir(), '.config') }
-	config_path := os.join_path(config_dir, 'vbar', 'init.lua')
+	base := if xdg != '' { xdg } else { os.join_path(os.home_dir(), '.config') }
+	return os.join_path(base, 'vbar')
+}
+
+fn load_config() Config {
+	config_path := os.join_path(config_dir(), 'init.lua')
 
 	if !os.exists(config_path) {
 		return default_config()

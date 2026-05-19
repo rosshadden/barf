@@ -1,5 +1,11 @@
 module vars
 
+@[heap]
+pub struct Generation {
+pub mut:
+	value int
+}
+
 pub type VarChangeFn = fn (voidptr)
 
 struct Subscriber {
@@ -17,6 +23,11 @@ mut:
 
 pub fn (mut s VarStore) pin(ptr voidptr) {
 	s.refs << ptr
+}
+
+pub fn (mut s VarStore) clear() {
+	s.subscribers = map[string][]Subscriber{}
+	s.refs = []
 }
 
 pub fn (mut s VarStore) set(name string, value string) {
