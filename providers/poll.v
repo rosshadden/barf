@@ -1,7 +1,7 @@
 module providers
 
+import cmd
 import lib.gtk
-import os
 import time as time_mod
 import vars
 
@@ -20,36 +20,12 @@ fn poll_apply(data voidptr) int {
 	return 0
 }
 
-fn run_command(shell []string, command string) os.Result {
-	mut p := os.new_process(shell[0])
-	mut args := []string{}
-	for a in shell[1..] {
-		args << a
-	}
-	args << command
-	p.set_args(args)
-	p.set_redirect_stdio()
-	p.wait()
-	output := p.stdout_slurp()
-	code := p.code
-	p.close()
-	return os.Result{
-		exit_code: code
-		output:    output
-	}
-}
-
-fn run_poll(name string, command string, interval int, shell []string, store &vars.VarStore, gen &vars.Generation, my_gen int) {
+fn run_poll(name string, command cmd.Command, interval int, shell []string, store &vars.VarStore, gen &vars.Generation, my_gen int, lua_rt voidptr) {
 	for {
 		if gen.value != my_gen {
 			return
 		}
-		result := run_command(shell, command)
-		value := if result.exit_code == 0 {
-			result.output.trim_space()
-		} else {
-			''
-		}
+		value := cmd.exec(command, shell, lua_rt)
 		update := &PollUpdate{
 			name:  name
 			value: value
@@ -60,6 +36,6 @@ fn run_poll(name string, command string, interval int, shell []string, store &va
 	}
 }
 
-pub fn start_poll(name string, command string, interval int, shell []string, store &vars.VarStore, gen &vars.Generation) {
-	spawn run_poll(name, command, interval, shell, store, gen, gen.value)
+pub fn start_poll(name string, command cmd.Command, interval int, shell []string, store &vars.VarStore, gen &vars.Generation, lua_rt voidptr) {
+	spawn run_poll(name, command, interval, shell, store, gen, gen.value, lua_rt)
 }

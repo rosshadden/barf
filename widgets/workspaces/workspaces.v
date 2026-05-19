@@ -1,5 +1,6 @@
 module workspaces
 
+import cmd
 import lib.gtk
 import json
 import net.unix
@@ -21,10 +22,11 @@ struct HyprMonitor {
 @[heap]
 struct WsClickState {
 	ws_name         string
-	on_click        string
-	on_right_click  string
-	on_middle_click string
+	on_click        cmd.Command
+	on_right_click  cmd.Command
+	on_middle_click cmd.Command
 	shell           []string
+	lua_rt          voidptr
 }
 
 struct WorkspaceState {
@@ -34,16 +36,17 @@ mut:
 	workspaces      []HyprWorkspace
 	active_color    string
 	monitor_name    string
-	on_click        string
-	on_right_click  string
-	on_middle_click string
+	on_click        cmd.Command
+	on_right_click  cmd.Command
+	on_middle_click cmd.Command
 	shell           []string
+	lua_rt          voidptr
 	refs            []&WsClickState
 	gen             &vars.Generation = unsafe { nil }
 	my_gen          int
 }
 
-pub fn make_widget(active_color string, monitor_name string, on_click string, on_right_click string, on_middle_click string, shell []string, gen &vars.Generation) &C.GtkWidget {
+pub fn make_widget(active_color string, monitor_name string, on_click cmd.Command, on_right_click cmd.Command, on_middle_click cmd.Command, shell []string, gen &vars.Generation, lua_rt voidptr) &C.GtkWidget {
 	container := C.gtk_box_new(gtk.gtk_orientation_horizontal, 4)
 	C.gtk_widget_set_name(container, c'workspaces')
 
@@ -55,6 +58,7 @@ pub fn make_widget(active_color string, monitor_name string, on_click string, on
 		on_right_click:  on_right_click
 		on_middle_click: on_middle_click
 		shell:           shell
+		lua_rt:          lua_rt
 		gen:             gen
 		my_gen:          gen.value
 	}
@@ -96,7 +100,7 @@ fn render(mut state WorkspaceState) {
 	state.refs = []&WsClickState{}
 	C.gtk_container_foreach(state.container, voidptr(destroy_child), unsafe { nil })
 
-	has_clicks := state.on_click != '' || state.on_right_click != '' || state.on_middle_click != ''
+	has_clicks := state.on_click.is_set() || state.on_right_click.is_set() || state.on_middle_click.is_set()
 
 	for ws in state.workspaces {
 		if ws.id < 0 && ws.name.contains('special:') {
@@ -118,6 +122,7 @@ fn render(mut state WorkspaceState) {
 				on_right_click:  state.on_right_click
 				on_middle_click: state.on_middle_click
 				shell:           state.shell
+				lua_rt:          state.lua_rt
 			}
 			state.refs << click_state
 
@@ -185,32 +190,16 @@ fn idle_update(data voidptr) int {
 
 fn ws_on_click(widget voidptr, event &C.GdkEventButton, data voidptr) int {
 	state := unsafe { &WsClickState(data) }
-	cmd := match event.button {
+	c := match event.button {
 		1 { state.on_click }
 		2 { state.on_middle_click }
 		3 { state.on_right_click }
-		else { '' }
+		else { cmd.Command{} }
 	}
 
-	if cmd == '' {
+	if !c.is_set() {
 		return 0
 	}
-	resolved := cmd.replace('{}', state.ws_name)
-	spawn run_event_command(state.shell, resolved)
+	spawn cmd.fire(c, state.shell, state.lua_rt, [state.ws_name])
 	return 1
-}
-
-fn run_event_command(shell []string, command string) {
-	if shell.len == 0 || command == '' {
-		return
-	}
-	mut p := os.new_process(shell[0])
-	mut args := []string{}
-	for a in shell[1..] {
-		args << a
-	}
-	args << command
-	p.set_args(args)
-	p.wait()
-	p.close()
 }

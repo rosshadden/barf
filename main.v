@@ -1,5 +1,6 @@
 module main
 
+import cmd
 import lib.gtk
 import lib.inotify
 import providers
@@ -15,6 +16,7 @@ mut:
 	app    &C.GtkApplication = unsafe { nil }
 	store  &vars.VarStore    = unsafe { nil }
 	gen    &vars.Generation  = unsafe { nil }
+	lua_rt &cmd.LuaRuntime   = unsafe { nil }
 }
 
 fn content_fn(container &C.GtkWidget, monitor_name string, data voidptr) {
@@ -27,19 +29,19 @@ fn content_fn(container &C.GtkWidget, monitor_name string, data voidptr) {
 	right_box := C.gtk_box_new(gtk.gtk_orientation_horizontal, 0)
 
 	for w in cd.left {
-		widget := make_widget(w, monitor_name, store, cd.shell, gen)
+		widget := make_widget(w, monitor_name, store, cd.shell, gen, cd.lua_rt)
 		if widget != unsafe { nil } {
 			C.gtk_box_pack_start(left_box, widget, 0, 0, 0)
 		}
 	}
 	for w in cd.center {
-		widget := make_widget(w, monitor_name, store, cd.shell, gen)
+		widget := make_widget(w, monitor_name, store, cd.shell, gen, cd.lua_rt)
 		if widget != unsafe { nil } {
 			C.gtk_box_pack_start(center_box, widget, 0, 0, 0)
 		}
 	}
 	for w in cd.right {
-		widget := make_widget(w, monitor_name, store, cd.shell, gen)
+		widget := make_widget(w, monitor_name, store, cd.shell, gen, cd.lua_rt)
 		if widget != unsafe { nil } {
 			C.gtk_box_pack_start(right_box, widget, 0, 0, 0)
 		}
@@ -50,14 +52,14 @@ fn content_fn(container &C.GtkWidget, monitor_name string, data voidptr) {
 	C.gtk_box_pack_end(container, right_box, 0, 0, 0)
 }
 
-fn make_widget(desc WidgetDesc, monitor_name string, store &vars.VarStore, shell []string, gen &vars.Generation) &C.GtkWidget {
+fn make_widget(desc WidgetDesc, monitor_name string, store &vars.VarStore, shell []string, gen &vars.Generation, lua_rt voidptr) &C.GtkWidget {
 	return match desc.kind {
 		'label' {
 			label.make_widget(desc.text, store, gen)
 		}
 		'workspaces' {
 			workspaces.make_widget(desc.active_color, monitor_name, desc.on_click,
-				desc.on_right_click, desc.on_middle_click, shell, gen)
+				desc.on_right_click, desc.on_middle_click, shell, gen, lua_rt)
 		}
 		else {
 			eprintln('vbar: unknown widget type: ${desc.kind}')
@@ -82,7 +84,7 @@ fn setup(mut ad AppData) {
 
 	for p in cfg.polls {
 		shell := if p.shell.len > 0 { p.shell } else { default_shell }
-		providers.start_poll(p.name, p.command, p.interval, shell, ad.store, ad.gen)
+		providers.start_poll(p.name, p.command, p.interval, shell, ad.store, ad.gen, voidptr(ad.lua_rt))
 	}
 
 	mut content_refs := []&ContentData{}
@@ -94,6 +96,7 @@ fn setup(mut ad AppData) {
 			store:  voidptr(ad.store)
 			gen:    voidptr(ad.gen)
 			shell:  default_shell
+			lua_rt: voidptr(ad.lua_rt)
 		}
 		content_refs << cd
 
@@ -122,6 +125,7 @@ fn setup(mut ad AppData) {
 			on_scroll:    desc.on_scroll
 			on_click:     desc.on_click
 			shell:        default_shell
+			lua_rt:       voidptr(ad.lua_rt)
 		})
 		for r in event_refs {
 			ad.refs << r
@@ -148,7 +152,19 @@ fn do_reload(data voidptr) int {
 		mut store := ad.store
 		store.clear()
 	}
-	ad.config = load_config()
+	if ad.lua_rt != unsafe { nil } {
+		unsafe {
+			mut rt := ad.lua_rt
+			rt.close()
+		}
+	}
+	config, lua_state := load_config()
+	ad.config = config
+	if lua_state != unsafe { nil } {
+		ad.lua_rt = cmd.new_runtime(lua_state)
+	} else {
+		ad.lua_rt = unsafe { nil }
+	}
 	ad.refs = []
 	setup(mut ad)
 	return 0
@@ -198,14 +214,19 @@ fn watch_config(dir string, data voidptr) {
 }
 
 fn main() {
-	cfg := load_config()
+	config, lua_state := load_config()
+	mut lua_rt := unsafe { &cmd.LuaRuntime(nil) }
+	if lua_state != unsafe { nil } {
+		lua_rt = cmd.new_runtime(lua_state)
+	}
 	store := &vars.VarStore{}
 	gen := &vars.Generation{}
 
 	mut ad := &AppData{
-		config: cfg
+		config: config
 		store:  store
 		gen:    gen
+		lua_rt: lua_rt
 	}
 
 	spawn watch_config(config_dir(), voidptr(ad))

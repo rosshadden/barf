@@ -1,5 +1,6 @@
 module main
 
+import cmd
 import lib.lua
 import os
 
@@ -7,9 +8,9 @@ struct WidgetDesc {
 	kind            string
 	active_color    string = '#89b4fa'
 	text            string
-	on_click        string
-	on_right_click  string
-	on_middle_click string
+	on_click        cmd.Command
+	on_right_click  cmd.Command
+	on_middle_click cmd.Command
 }
 
 struct BarDesc {
@@ -20,8 +21,8 @@ struct BarDesc {
 	fg_color    string
 	anchors     []string = ['left', 'right', 'top']
 	monitors    []string
-	on_scroll   string
-	on_click    string
+	on_scroll   cmd.Command
+	on_click    cmd.Command
 	left        []WidgetDesc
 	center      []WidgetDesc
 	right       []WidgetDesc
@@ -29,7 +30,7 @@ struct BarDesc {
 
 struct PollDesc {
 	name     string
-	command  string
+	command  cmd.Command
 	interval int = 1
 	shell    []string
 }
@@ -57,6 +58,7 @@ struct ContentData {
 	store  voidptr
 	gen    voidptr
 	shell  []string
+	lua_rt voidptr
 }
 
 struct ConfigAccum {
@@ -115,6 +117,28 @@ fn read_string_array_field(l &C.lua_State, tbl_idx int, key &char) []string {
 	return result
 }
 
+fn read_command_field(l &C.lua_State, tbl_idx int, key &char) cmd.Command {
+	t := C.lua_getfield(l, tbl_idx, key)
+	if t == lua.lua_tstring {
+		raw := C.lua_tolstring(l, -1, unsafe { nil })
+		s := unsafe { cstring_to_vstring(raw) }
+		lua.lua_pop(l, 1)
+		return cmd.Command{
+			kind:    .shell
+			str_val: s
+		}
+	}
+	if t == lua.lua_tfunction {
+		ref := C.luaL_ref(l, lua.lua_registryindex)
+		return cmd.Command{
+			kind:    .lua_fn
+			lua_ref: ref
+		}
+	}
+	lua.lua_pop(l, 1)
+	return cmd.Command{}
+}
+
 fn read_widget_list(l &C.lua_State, tbl_idx int, key &char) []WidgetDesc {
 	mut result := []WidgetDesc{}
 	t := C.lua_getfield(l, tbl_idx, key)
@@ -131,9 +155,9 @@ fn read_widget_list(l &C.lua_State, tbl_idx int, key &char) []WidgetDesc {
 			kind := read_string_field(l, widget_tbl, c'type', '')
 			active_color := read_string_field(l, widget_tbl, c'active_color', '#89b4fa')
 			text := read_string_field(l, widget_tbl, c'text', '')
-			on_click := read_string_field(l, widget_tbl, c'on_click', '')
-			on_right_click := read_string_field(l, widget_tbl, c'on_right_click', '')
-			on_middle_click := read_string_field(l, widget_tbl, c'on_middle_click', '')
+			on_click := read_command_field(l, widget_tbl, c'on_click')
+			on_right_click := read_command_field(l, widget_tbl, c'on_right_click')
+			on_middle_click := read_command_field(l, widget_tbl, c'on_middle_click')
 			if kind != '' {
 				result << WidgetDesc{
 					kind:            kind
@@ -171,8 +195,8 @@ fn lua_bar_fn(l &C.lua_State) int {
 		fg_color:    read_string_field(l, 1, c'fg_color', '')
 		anchors:     read_string_array_field(l, 1, c'anchors')
 		monitors:    read_string_array_field(l, 1, c'monitors')
-		on_scroll:   read_string_field(l, 1, c'on_scroll', '')
-		on_click:    read_string_field(l, 1, c'on_click', '')
+		on_scroll:   read_command_field(l, 1, c'on_scroll')
+		on_click:    read_command_field(l, 1, c'on_click')
 		left:        read_widget_list(l, 1, c'left')
 		center:      read_widget_list(l, 1, c'center')
 		right:       read_widget_list(l, 1, c'right')
@@ -215,7 +239,7 @@ fn lua_workspaces_fn(l &C.lua_State) int {
 
 		for field in [c'on_click', c'on_right_click', c'on_middle_click'] {
 			ft := C.lua_getfield(l, 1, field)
-			if ft == lua.lua_tstring {
+			if ft == lua.lua_tstring || ft == lua.lua_tfunction {
 				C.lua_setfield(l, -2, field)
 			} else {
 				lua.lua_pop(l, 1)
@@ -235,10 +259,10 @@ fn lua_poll_fn(l &C.lua_State) int {
 	}
 	raw_name := C.lua_tolstring(l, 1, unsafe { nil })
 	name := unsafe { cstring_to_vstring(raw_name) }
-	command := read_string_field(l, 2, c'command', '')
+	command := read_command_field(l, 2, c'command')
 	interval := read_int_field(l, 2, c'interval', 1)
 	shell := read_string_array_field(l, 2, c'shell')
-	if name == '' || command == '' {
+	if name == '' || !command.is_set() {
 		C.luaL_error(l, c'vbar.poll: name and command required')
 		return 0
 	}
@@ -330,20 +354,17 @@ fn config_dir() string {
 	return os.join_path(base, 'vbar')
 }
 
-fn load_config() Config {
+fn load_config() (Config, &C.lua_State) {
 	config_path := os.join_path(config_dir(), 'init.lua')
 
 	if !os.exists(config_path) {
-		return default_config()
+		return default_config(), unsafe { nil }
 	}
 
 	l := C.luaL_newstate()
 	if l == unsafe { nil } {
 		eprintln('vbar: failed to create Lua state')
-		return default_config()
-	}
-	defer {
-		C.lua_close(l)
+		return default_config(), unsafe { nil }
 	}
 
 	C.luaL_openlibs(l)
@@ -360,7 +381,8 @@ fn load_config() Config {
 		raw := C.lua_tolstring(l, -1, unsafe { nil })
 		err := unsafe { cstring_to_vstring(raw) }
 		eprintln('vbar: config syntax error: ${err}')
-		return default_config()
+		C.lua_close(l)
+		return default_config(), unsafe { nil }
 	}
 
 	call_status := C.lua_pcallk(l, 0, lua.lua_multret, 0, 0, unsafe { nil })
@@ -368,7 +390,8 @@ fn load_config() Config {
 		raw := C.lua_tolstring(l, -1, unsafe { nil })
 		err := unsafe { cstring_to_vstring(raw) }
 		eprintln('vbar: config runtime error: ${err}')
-		return default_config()
+		C.lua_close(l)
+		return default_config(), unsafe { nil }
 	}
 
 	font_family := if accum.font_family != '' { accum.font_family } else { 'monospace' }
@@ -396,7 +419,7 @@ fn load_config() Config {
 		polls:       accum.polls
 		builtins:    accum.builtins
 		shell:       accum.shell
-	}
+	}, l
 }
 
 fn default_config() Config {

@@ -33,6 +33,14 @@ pub const lua_multret = C.vbar_lua_multret()
 // Return codes
 pub const lua_ok = 0
 
+// Function type
+pub const lua_tfunction = 6
+
+// Reference constants
+fn C.vbar_lua_noref() int
+
+pub const lua_noref = C.vbar_lua_noref()
+
 // State lifecycle
 pub fn C.luaL_newstate() &C.lua_State
 pub fn C.lua_close(L &C.lua_State)
@@ -83,6 +91,10 @@ pub fn C.luaL_loadfilex(L &C.lua_State, filename &char, mode voidptr) int
 
 // Module registration
 pub fn C.luaL_requiref(L &C.lua_State, modname &char, openf voidptr, glb int)
+
+// References
+pub fn C.luaL_ref(L &C.lua_State, t int) int
+pub fn C.luaL_unref(L &C.lua_State, t int, ref int)
 
 // Errors
 pub fn C.luaL_error(L &C.lua_State, fmt &char) int
