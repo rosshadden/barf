@@ -276,6 +276,52 @@ fn lua_poll_fn(l &C.lua_State) int {
 	return 0
 }
 
+fn lua_exec_fn(l &C.lua_State) int {
+	if C.lua_type(l, 1) != lua.lua_tstring {
+		C.luaL_error(l, c'vbar.exec: expected string command')
+		return 0
+	}
+	raw_cmd := C.lua_tolstring(l, 1, unsafe { nil })
+	command := unsafe { cstring_to_vstring(raw_cmd) }
+
+	mut shell := []string{}
+	t := C.lua_getfield(l, lua.lua_registryindex, c'vbar.shell')
+	if t == lua.lua_ttable {
+		shell_idx := C.lua_gettop(l)
+		n := int(C.lua_rawlen(l, shell_idx))
+		for i := 1; i <= n; i++ {
+			C.lua_rawgeti(l, shell_idx, i64(i))
+			if C.lua_type(l, -1) == lua.lua_tstring {
+				raw := C.lua_tolstring(l, -1, unsafe { nil })
+				shell << unsafe { cstring_to_vstring(raw) }
+			}
+			lua.lua_pop(l, 1)
+		}
+	}
+	lua.lua_pop(l, 1)
+
+	if shell.len == 0 {
+		shell = ['sh', '-c']
+	}
+
+	mut p := os.new_process(shell[0])
+	mut args := []string{}
+	for a in shell[1..] {
+		args << a
+	}
+	args << command
+	p.set_args(args)
+	p.set_redirect_stdio()
+	p.wait()
+	output := p.stdout_slurp().trim_space()
+	code := p.code
+	p.close()
+
+	C.lua_pushstring(l, output.str)
+	C.lua_pushinteger(l, i64(code))
+	return 2
+}
+
 fn lua_setup_fn(l &C.lua_State) int {
 	if C.lua_type(l, 1) != lua.lua_ttable {
 		C.luaL_error(l, c'vbar.setup: expected table argument')
@@ -285,6 +331,8 @@ fn lua_setup_fn(l &C.lua_State) int {
 	shell := read_string_array_field(l, 1, c'shell')
 	if shell.len > 0 {
 		accum.shell = shell
+		C.lua_getfield(l, 1, c'shell')
+		C.lua_setfield(l, lua.lua_registryindex, c'vbar.shell')
 	}
 	font_family := read_string_field(l, 1, c'font_family', '')
 	if font_family != '' {
@@ -328,7 +376,7 @@ fn lua_setup_fn(l &C.lua_State) int {
 }
 
 fn open_vbar_module(l &C.lua_State) int {
-	C.lua_createtable(l, 0, 5)
+	C.lua_createtable(l, 0, 6)
 
 	C.lua_pushcclosure(l, voidptr(lua_bar_fn), 0)
 	C.lua_setfield(l, -2, c'bar')
@@ -344,6 +392,9 @@ fn open_vbar_module(l &C.lua_State) int {
 
 	C.lua_pushcclosure(l, voidptr(lua_setup_fn), 0)
 	C.lua_setfield(l, -2, c'setup')
+
+	C.lua_pushcclosure(l, voidptr(lua_exec_fn), 0)
+	C.lua_setfield(l, -2, c'exec')
 
 	return 1
 }
