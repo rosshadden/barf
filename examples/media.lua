@@ -4,13 +4,14 @@
 
 local vbar = require("vbar")
 
--- Use bash so subshell expansions work in poll commands.
-vbar.shell({ "bash", "-c" })
+vbar.setup({
+	shell = { "bash", "-c" },
+})
 
 -- Use playerctl's own formatting to get a clean combined string.
 -- Outputs nothing when no player is available, so the label stays blank.
 vbar.poll("media", {
-	command = "playerctl metadata --format '{{artist}} - {{title}}' 2>/dev/null || echo ''",
+	command = [[playerctl metadata --format "{{artist}} - {{title}}" 2>/dev/null || echo ""]],
 	interval = 2,
 })
 

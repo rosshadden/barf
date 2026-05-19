@@ -17,28 +17,46 @@ struct HyprMonitor {
 	active_workspace HyprWorkspace @[json: 'activeWorkspace']
 }
 
-struct WorkspaceState {
-mut:
-	label        &C.GtkWidget = unsafe { nil }
-	active_id    int
-	workspaces   []HyprWorkspace
-	active_color string
-	monitor_name string
+@[heap]
+struct WsClickState {
+	ws_name         string
+	on_click        string
+	on_right_click  string
+	on_middle_click string
+	shell           []string
 }
 
-pub fn make_widget(active_color string, monitor_name string) &C.GtkWidget {
-	label := C.gtk_label_new(c'')
-	C.gtk_widget_set_name(label, c'workspaces')
+struct WorkspaceState {
+mut:
+	container       &C.GtkWidget = unsafe { nil }
+	active_id       int
+	workspaces      []HyprWorkspace
+	active_color    string
+	monitor_name    string
+	on_click        string
+	on_right_click  string
+	on_middle_click string
+	shell           []string
+	refs            []&WsClickState
+}
+
+pub fn make_widget(active_color string, monitor_name string, on_click string, on_right_click string, on_middle_click string, shell []string) &C.GtkWidget {
+	container := C.gtk_box_new(gtk.gtk_orientation_horizontal, 4)
+	C.gtk_widget_set_name(container, c'workspaces')
 
 	mut state := &WorkspaceState{
-		label:        label
-		active_color: active_color
-		monitor_name: monitor_name
+		container:       container
+		active_color:    active_color
+		monitor_name:    monitor_name
+		on_click:        on_click
+		on_right_click:  on_right_click
+		on_middle_click: on_middle_click
+		shell:           shell
 	}
 	poll(mut state)
-	render(state)
+	render(mut state)
 	spawn watch(mut state)
-	return label
+	return container
 }
 
 fn poll(mut state WorkspaceState) {
@@ -65,20 +83,51 @@ fn poll(mut state WorkspaceState) {
 	}
 }
 
-fn render(state &WorkspaceState) {
-	mut parts := []string{}
+fn destroy_child(child &C.GtkWidget, data voidptr) {
+	C.gtk_widget_destroy(child)
+}
+
+fn render(mut state WorkspaceState) {
+	state.refs = []&WsClickState{}
+	C.gtk_container_foreach(state.container, voidptr(destroy_child), unsafe { nil })
+
+	has_clicks := state.on_click != '' || state.on_right_click != '' || state.on_middle_click != ''
+
 	for ws in state.workspaces {
 		if ws.id < 0 && ws.name.contains('special:') {
 			continue
 		}
+
+		lbl := C.gtk_label_new(c'')
 		if ws.id == state.active_id {
-			parts << '<span foreground="${state.active_color}">[${ws.name}]</span>'
+			markup := '<span foreground="${state.active_color}">[${ws.name}]</span>'
+			C.gtk_label_set_markup(lbl, markup.str)
 		} else {
-			parts << ws.name
+			C.gtk_label_set_text(lbl, ws.name.str)
+		}
+
+		if has_clicks {
+			click_state := &WsClickState{
+				ws_name:         ws.name
+				on_click:        state.on_click
+				on_right_click:  state.on_right_click
+				on_middle_click: state.on_middle_click
+				shell:           state.shell
+			}
+			state.refs << click_state
+
+			eb := C.gtk_event_box_new()
+			C.gtk_container_add(eb, lbl)
+			C.gtk_widget_add_events(eb, gtk.gdk_button_press_mask)
+			C.g_signal_connect_data(eb, c'button-press-event', voidptr(ws_on_click),
+				voidptr(click_state), unsafe { nil }, 0)
+			C.gtk_box_pack_start(state.container, eb, 0, 0, 0)
+		} else {
+			C.gtk_box_pack_start(state.container, lbl, 0, 0, 0)
 		}
 	}
-	markup := parts.join('  ')
-	C.gtk_label_set_markup(state.label, markup.str)
+
+	C.gtk_widget_show_all(state.container)
 }
 
 fn watch(mut state WorkspaceState) {
@@ -107,24 +156,53 @@ fn watch(mut state WorkspaceState) {
 			}
 			line := partial[..idx]
 			partial = partial[idx + 1..]
-			if handle_event(line, mut state) {
+			if handle_event(line) {
 				C.g_idle_add(voidptr(idle_update), state)
 			}
 		}
 	}
 }
 
-fn handle_event(line string, mut state WorkspaceState) bool {
-	if line.starts_with('workspace>>') || line.starts_with('createworkspace>>')
-		|| line.starts_with('destroyworkspace>>') || line.starts_with('moveworkspace>>') {
-		poll(mut state)
-		return true
-	}
-	return false
+fn handle_event(line string) bool {
+	return line.starts_with('workspace>>') || line.starts_with('createworkspace>>')
+		|| line.starts_with('destroyworkspace>>') || line.starts_with('moveworkspace>>')
 }
 
 fn idle_update(data voidptr) int {
-	state := unsafe { &WorkspaceState(data) }
-	render(state)
+	mut state := unsafe { &WorkspaceState(data) }
+	poll(mut state)
+	render(mut state)
 	return 0
+}
+
+fn ws_on_click(widget voidptr, event &C.GdkEventButton, data voidptr) int {
+	state := unsafe { &WsClickState(data) }
+	cmd := match event.button {
+		1 { state.on_click }
+		2 { state.on_middle_click }
+		3 { state.on_right_click }
+		else { '' }
+	}
+
+	if cmd == '' {
+		return 0
+	}
+	resolved := cmd.replace('{}', state.ws_name)
+	spawn run_event_command(state.shell, resolved)
+	return 1
+}
+
+fn run_event_command(shell []string, command string) {
+	if shell.len == 0 || command == '' {
+		return
+	}
+	mut p := os.new_process(shell[0])
+	mut args := []string{}
+	for a in shell[1..] {
+		args << a
+	}
+	args << command
+	p.set_args(args)
+	p.wait()
+	p.close()
 }

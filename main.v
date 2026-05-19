@@ -10,6 +10,8 @@ import widgets.workspaces
 struct AppData {
 	config Config
 	store  &vars.VarStore
+mut:
+	refs []voidptr
 }
 
 fn content_fn(container &C.GtkWidget, monitor_name string, data voidptr) {
@@ -21,19 +23,19 @@ fn content_fn(container &C.GtkWidget, monitor_name string, data voidptr) {
 	right_box := C.gtk_box_new(gtk.gtk_orientation_horizontal, 0)
 
 	for w in cd.left {
-		widget := make_widget(w, monitor_name, store)
+		widget := make_widget(w, monitor_name, store, cd.shell)
 		if widget != unsafe { nil } {
 			C.gtk_box_pack_start(left_box, widget, 0, 0, 0)
 		}
 	}
 	for w in cd.center {
-		widget := make_widget(w, monitor_name, store)
+		widget := make_widget(w, monitor_name, store, cd.shell)
 		if widget != unsafe { nil } {
 			C.gtk_box_pack_start(center_box, widget, 0, 0, 0)
 		}
 	}
 	for w in cd.right {
-		widget := make_widget(w, monitor_name, store)
+		widget := make_widget(w, monitor_name, store, cd.shell)
 		if widget != unsafe { nil } {
 			C.gtk_box_pack_start(right_box, widget, 0, 0, 0)
 		}
@@ -44,13 +46,14 @@ fn content_fn(container &C.GtkWidget, monitor_name string, data voidptr) {
 	C.gtk_box_pack_end(container, right_box, 0, 0, 0)
 }
 
-fn make_widget(desc WidgetDesc, monitor_name string, store &vars.VarStore) &C.GtkWidget {
+fn make_widget(desc WidgetDesc, monitor_name string, store &vars.VarStore, shell []string) &C.GtkWidget {
 	return match desc.kind {
 		'label' {
 			label.make_widget(desc.text, store)
 		}
 		'workspaces' {
-			workspaces.make_widget(desc.active_color, monitor_name)
+			workspaces.make_widget(desc.active_color, monitor_name, desc.on_click,
+				desc.on_right_click, desc.on_middle_click, shell)
 		}
 		else {
 			eprintln('vbar: unknown widget type: ${desc.kind}')
@@ -60,7 +63,8 @@ fn make_widget(desc WidgetDesc, monitor_name string, store &vars.VarStore) &C.Gt
 }
 
 fn on_activate(app &C.GtkApplication, data voidptr) {
-	ad := unsafe { &AppData(data) }
+	mut ad := unsafe { &AppData(data) }
+	default_shell := if ad.config.shell.len > 0 { ad.config.shell } else { ['sh', '-c'] }
 	mut content_refs := []&ContentData{}
 
 	for desc in ad.config.bars {
@@ -69,6 +73,7 @@ fn on_activate(app &C.GtkApplication, data voidptr) {
 			center: desc.center
 			right:  desc.right
 			store:  voidptr(ad.store)
+			shell:  default_shell
 		}
 		content_refs << cd
 
@@ -84,7 +89,7 @@ fn on_activate(app &C.GtkApplication, data voidptr) {
 			anchors = [bar.Anchor.left, .right, .top]
 		}
 
-		bar.create(app, bar.BarConfig{
+		event_refs := bar.create(app, bar.BarConfig{
 			height:       desc.height
 			anchors:      anchors
 			monitors:     desc.monitors
@@ -94,7 +99,13 @@ fn on_activate(app &C.GtkApplication, data voidptr) {
 			font_size:    desc.font_size
 			bg_color:     desc.bg_color
 			fg_color:     desc.fg_color
+			on_scroll:    desc.on_scroll
+			on_click:     desc.on_click
+			shell:        default_shell
 		})
+		for r in event_refs {
+			ad.refs << r
+		}
 	}
 	_ = content_refs
 }

@@ -25,6 +25,16 @@ pub:
 	font_size    string    = '10pt'
 	bg_color     string    = '#1e1e2e'
 	fg_color     string    = '#cdd6f4'
+	on_scroll    string
+	on_click     string
+	shell        []string
+}
+
+@[heap]
+struct BarEventState {
+	on_scroll string
+	on_click  string
+	shell     []string
 }
 
 struct HyprMon {
@@ -62,13 +72,14 @@ fn match_monitor(monitors []HyprMon, x int, y int) string {
 	return ''
 }
 
-pub fn create(app &C.GtkApplication, cfg BarConfig) {
+pub fn create(app &C.GtkApplication, cfg BarConfig) []voidptr {
 	apply_css(cfg)
 
 	display := C.gdk_display_get_default()
 	n := C.gdk_display_get_n_monitors(display)
 	hypr_monitors := get_hypr_monitors()
 
+	mut refs := []voidptr{}
 	for i in 0 .. n {
 		gdk_mon := C.gdk_display_get_monitor(display, i)
 		mut rect := C.GdkRectangle{}
@@ -77,11 +88,15 @@ pub fn create(app &C.GtkApplication, cfg BarConfig) {
 		if cfg.monitors.len > 0 && monitor_name !in cfg.monitors {
 			continue
 		}
-		create_for_monitor(app, cfg, gdk_mon, monitor_name)
+		r := create_for_monitor(app, cfg, gdk_mon, monitor_name)
+		if r != unsafe { nil } {
+			refs << voidptr(r)
+		}
 	}
+	return refs
 }
 
-fn create_for_monitor(app &C.GtkApplication, cfg BarConfig, gdk_mon &C.GdkMonitor, monitor_name string) {
+fn create_for_monitor(app &C.GtkApplication, cfg BarConfig, gdk_mon &C.GdkMonitor, monitor_name string) &BarEventState {
 	win_widget := C.gtk_application_window_new(app)
 	win := unsafe { &C.GtkWindow(win_widget) }
 
@@ -100,11 +115,87 @@ fn create_for_monitor(app &C.GtkApplication, cfg BarConfig, gdk_mon &C.GdkMonito
 	C.gtk_widget_set_size_request(win_widget, -1, cfg.height)
 
 	container := C.gtk_box_new(gtk.gtk_orientation_horizontal, 0)
-	C.gtk_container_add(win_widget, container)
+
+	has_events := cfg.on_scroll != '' || cfg.on_click != ''
+	mut state := &BarEventState(unsafe { nil })
+	if has_events {
+		event_box := C.gtk_event_box_new()
+		C.gtk_container_add(win_widget, event_box)
+		C.gtk_container_add(event_box, container)
+
+		state = &BarEventState{
+			on_scroll: cfg.on_scroll
+			on_click:  cfg.on_click
+			shell:     cfg.shell
+		}
+
+		if cfg.on_scroll != '' {
+			C.gtk_widget_add_events(event_box, gtk.gdk_scroll_mask)
+			C.g_signal_connect_data(event_box, c'scroll-event', voidptr(bar_on_scroll),
+				voidptr(state), unsafe { nil }, 0)
+		}
+		if cfg.on_click != '' {
+			C.gtk_widget_add_events(event_box, gtk.gdk_button_press_mask)
+			C.g_signal_connect_data(event_box, c'button-press-event', voidptr(bar_on_click),
+				voidptr(state), unsafe { nil }, 0)
+		}
+	} else {
+		C.gtk_container_add(win_widget, container)
+	}
 
 	if cfg.content != unsafe { nil } {
 		cfg.content(container, monitor_name, cfg.content_data)
 	}
 
 	C.gtk_widget_show_all(win_widget)
+	return state
+}
+
+fn bar_on_scroll(widget voidptr, event &C.GdkEventScroll, data voidptr) int {
+	state := unsafe { &BarEventState(data) }
+	if state.on_scroll == '' {
+		return 0
+	}
+	dir := if event.direction == gtk.gdk_scroll_up {
+		'up'
+	} else if event.direction == gtk.gdk_scroll_down {
+		'down'
+	} else if event.direction == gtk.gdk_scroll_smooth {
+		if event.delta_y < 0 {
+			'up'
+		} else if event.delta_y > 0 {
+			'down'
+		} else {
+			return 0
+		}
+	} else {
+		return 0
+	}
+	cmd := state.on_scroll.replace('{}', dir)
+	spawn run_event_command(state.shell, cmd)
+	return 1
+}
+
+fn bar_on_click(widget voidptr, event &C.GdkEventButton, data voidptr) int {
+	state := unsafe { &BarEventState(data) }
+	if event.button != 1 || state.on_click == '' {
+		return 0
+	}
+	spawn run_event_command(state.shell, state.on_click)
+	return 1
+}
+
+fn run_event_command(shell []string, command string) {
+	if shell.len == 0 || command == '' {
+		return
+	}
+	mut p := os.new_process(shell[0])
+	mut args := []string{}
+	for a in shell[1..] {
+		args << a
+	}
+	args << command
+	p.set_args(args)
+	p.wait()
+	p.close()
 }

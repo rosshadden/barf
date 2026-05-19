@@ -4,9 +4,12 @@ import lib.lua
 import os
 
 struct WidgetDesc {
-	kind         string
-	active_color string = '#89b4fa'
-	text         string
+	kind            string
+	active_color    string = '#89b4fa'
+	text            string
+	on_click        string
+	on_right_click  string
+	on_middle_click string
 }
 
 struct BarDesc {
@@ -17,6 +20,8 @@ struct BarDesc {
 	fg_color    string   = '#cdd6f4'
 	anchors     []string = ['left', 'right', 'top']
 	monitors    []string
+	on_scroll   string
+	on_click    string
 	left        []WidgetDesc
 	center      []WidgetDesc
 	right       []WidgetDesc
@@ -46,6 +51,7 @@ struct ContentData {
 	center []WidgetDesc
 	right  []WidgetDesc
 	store  voidptr
+	shell  []string
 }
 
 struct ConfigAccum {
@@ -116,11 +122,17 @@ fn read_widget_list(l &C.lua_State, tbl_idx int, key &char) []WidgetDesc {
 			kind := read_string_field(l, widget_tbl, c'type', '')
 			active_color := read_string_field(l, widget_tbl, c'active_color', '#89b4fa')
 			text := read_string_field(l, widget_tbl, c'text', '')
+			on_click := read_string_field(l, widget_tbl, c'on_click', '')
+			on_right_click := read_string_field(l, widget_tbl, c'on_right_click', '')
+			on_middle_click := read_string_field(l, widget_tbl, c'on_middle_click', '')
 			if kind != '' {
 				result << WidgetDesc{
-					kind:         kind
-					active_color: active_color
-					text:         text
+					kind:            kind
+					active_color:    active_color
+					text:            text
+					on_click:        on_click
+					on_right_click:  on_right_click
+					on_middle_click: on_middle_click
 				}
 			}
 		}
@@ -150,6 +162,8 @@ fn lua_bar_fn(l &C.lua_State) int {
 		fg_color:    read_string_field(l, 1, c'fg_color', '#cdd6f4')
 		anchors:     read_string_array_field(l, 1, c'anchors')
 		monitors:    read_string_array_field(l, 1, c'monitors')
+		on_scroll:   read_string_field(l, 1, c'on_scroll', '')
+		on_click:    read_string_field(l, 1, c'on_click', '')
 		left:        read_widget_list(l, 1, c'left')
 		center:      read_widget_list(l, 1, c'center')
 		right:       read_widget_list(l, 1, c'right')
@@ -176,7 +190,7 @@ fn lua_label_fn(l &C.lua_State) int {
 
 fn lua_workspaces_fn(l &C.lua_State) int {
 	nargs := C.lua_gettop(l)
-	C.lua_createtable(l, 0, 2)
+	C.lua_createtable(l, 0, 5)
 	C.lua_pushstring(l, c'workspaces')
 	C.lua_setfield(l, -2, c'type')
 
@@ -188,6 +202,15 @@ fn lua_workspaces_fn(l &C.lua_State) int {
 			lua.lua_pop(l, 1)
 			C.lua_pushstring(l, c'#89b4fa')
 			C.lua_setfield(l, -2, c'active_color')
+		}
+
+		for field in [c'on_click', c'on_right_click', c'on_middle_click'] {
+			ft := C.lua_getfield(l, 1, field)
+			if ft == lua.lua_tstring {
+				C.lua_setfield(l, -2, field)
+			} else {
+				lua.lua_pop(l, 1)
+			}
 		}
 	} else {
 		C.lua_pushstring(l, c'#89b4fa')
@@ -220,60 +243,43 @@ fn lua_poll_fn(l &C.lua_State) int {
 	return 0
 }
 
-fn lua_shell_fn(l &C.lua_State) int {
+fn lua_setup_fn(l &C.lua_State) int {
 	if C.lua_type(l, 1) != lua.lua_ttable {
-		C.luaL_error(l, c'vbar.shell: expected table (e.g. {"bash", "-c"})')
+		C.luaL_error(l, c'vbar.setup: expected table argument')
 		return 0
 	}
-	n := int(C.lua_rawlen(l, 1))
-	if n == 0 {
-		C.luaL_error(l, c'vbar.shell: table must not be empty')
-		return 0
+	mut accum := get_config_accum(l)
+	shell := read_string_array_field(l, 1, c'shell')
+	if shell.len > 0 {
+		accum.shell = shell
 	}
-	mut shell := []string{}
-	for i := 1; i <= n; i++ {
-		C.lua_rawgeti(l, 1, i64(i))
-		if C.lua_type(l, -1) == lua.lua_tstring {
-			raw := C.lua_tolstring(l, -1, unsafe { nil })
-			shell << unsafe { cstring_to_vstring(raw) }
+	t := C.lua_getfield(l, 1, c'providers')
+	if t == lua.lua_ttable {
+		providers_idx := C.lua_gettop(l)
+		C.lua_pushnil(l)
+		for C.lua_next(l, providers_idx) != 0 {
+			if C.lua_type(l, -2) == lua.lua_tstring {
+				raw := C.lua_tolstring(l, -2, unsafe { nil })
+				kind := unsafe { cstring_to_vstring(raw) }
+				interval := if C.lua_type(l, -1) == lua.lua_ttable {
+					read_int_field(l, C.lua_gettop(l), c'interval', 2)
+				} else {
+					2
+				}
+				accum.builtins << BuiltinDesc{
+					kind:     kind
+					interval: interval
+				}
+			}
+			lua.lua_pop(l, 1)
 		}
-		lua.lua_pop(l, 1)
 	}
-	mut accum := get_config_accum(l)
-	accum.shell = shell
-	return 0
-}
-
-fn lua_cpu_fn(l &C.lua_State) int {
-	interval := if C.lua_type(l, 1) == lua.lua_ttable {
-		read_int_field(l, 1, c'interval', 2)
-	} else {
-		2
-	}
-	mut accum := get_config_accum(l)
-	accum.builtins << BuiltinDesc{
-		kind:     'cpu'
-		interval: interval
-	}
-	return 0
-}
-
-fn lua_ram_fn(l &C.lua_State) int {
-	interval := if C.lua_type(l, 1) == lua.lua_ttable {
-		read_int_field(l, 1, c'interval', 2)
-	} else {
-		2
-	}
-	mut accum := get_config_accum(l)
-	accum.builtins << BuiltinDesc{
-		kind:     'ram'
-		interval: interval
-	}
+	lua.lua_pop(l, 1)
 	return 0
 }
 
 fn open_vbar_module(l &C.lua_State) int {
-	C.lua_createtable(l, 0, 7)
+	C.lua_createtable(l, 0, 5)
 
 	C.lua_pushcclosure(l, voidptr(lua_bar_fn), 0)
 	C.lua_setfield(l, -2, c'bar')
@@ -287,14 +293,8 @@ fn open_vbar_module(l &C.lua_State) int {
 	C.lua_pushcclosure(l, voidptr(lua_poll_fn), 0)
 	C.lua_setfield(l, -2, c'poll')
 
-	C.lua_pushcclosure(l, voidptr(lua_cpu_fn), 0)
-	C.lua_setfield(l, -2, c'cpu')
-
-	C.lua_pushcclosure(l, voidptr(lua_ram_fn), 0)
-	C.lua_setfield(l, -2, c'ram')
-
-	C.lua_pushcclosure(l, voidptr(lua_shell_fn), 0)
-	C.lua_setfield(l, -2, c'shell')
+	C.lua_pushcclosure(l, voidptr(lua_setup_fn), 0)
+	C.lua_setfield(l, -2, c'setup')
 
 	return 1
 }

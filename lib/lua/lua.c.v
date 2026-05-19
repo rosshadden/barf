@@ -57,8 +57,12 @@ pub fn C.lua_rawlen(L &C.lua_State, idx int) u64
 // Set functions
 pub fn C.lua_setfield(L &C.lua_State, idx int, k &char)
 
-// Table construction
+// Table construction & iteration
 pub fn C.lua_createtable(L &C.lua_State, narr int, nrec int)
+pub fn C.lua_next(L &C.lua_State, idx int) int
+
+// Nil
+pub fn C.lua_pushnil(L &C.lua_State)
 
 // Userdata
 pub fn C.lua_pushlightuserdata(L &C.lua_State, p voidptr)
