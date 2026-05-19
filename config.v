@@ -13,11 +13,11 @@ struct WidgetDesc {
 }
 
 struct BarDesc {
-	height      int      = 30
-	font_family string   = 'monospace'
-	font_size   string   = '12pt'
-	bg_color    string   = '#1e1e2e'
-	fg_color    string   = '#cdd6f4'
+	height      int = 30
+	font_family string
+	font_size   string
+	bg_color    string
+	fg_color    string
 	anchors     []string = ['left', 'right', 'top']
 	monitors    []string
 	on_scroll   string
@@ -40,10 +40,14 @@ struct BuiltinDesc {
 }
 
 struct Config {
-	bars     []BarDesc
-	polls    []PollDesc
-	builtins []BuiltinDesc
-	shell    []string
+	font_family string = 'monospace'
+	font_size   string = '12pt'
+	bg_color    string = '#1e1e2e'
+	fg_color    string = '#cdd6f4'
+	bars        []BarDesc
+	polls       []PollDesc
+	builtins    []BuiltinDesc
+	shell       []string
 }
 
 struct ContentData {
@@ -56,10 +60,14 @@ struct ContentData {
 
 struct ConfigAccum {
 mut:
-	bars     []BarDesc
-	polls    []PollDesc
-	builtins []BuiltinDesc
-	shell    []string
+	font_family string
+	font_size   string
+	bg_color    string
+	fg_color    string
+	bars        []BarDesc
+	polls       []PollDesc
+	builtins    []BuiltinDesc
+	shell       []string
 }
 
 fn read_string_field(l &C.lua_State, tbl_idx int, key &char, default_ string) string {
@@ -156,10 +164,10 @@ fn lua_bar_fn(l &C.lua_State) int {
 	}
 	desc := BarDesc{
 		height:      read_int_field(l, 1, c'height', 30)
-		font_family: read_string_field(l, 1, c'font_family', 'monospace')
-		font_size:   read_string_field(l, 1, c'font_size', '12pt')
-		bg_color:    read_string_field(l, 1, c'bg_color', '#1e1e2e')
-		fg_color:    read_string_field(l, 1, c'fg_color', '#cdd6f4')
+		font_family: read_string_field(l, 1, c'font_family', '')
+		font_size:   read_string_field(l, 1, c'font_size', '')
+		bg_color:    read_string_field(l, 1, c'bg_color', '')
+		fg_color:    read_string_field(l, 1, c'fg_color', '')
 		anchors:     read_string_array_field(l, 1, c'anchors')
 		monitors:    read_string_array_field(l, 1, c'monitors')
 		on_scroll:   read_string_field(l, 1, c'on_scroll', '')
@@ -253,6 +261,22 @@ fn lua_setup_fn(l &C.lua_State) int {
 	if shell.len > 0 {
 		accum.shell = shell
 	}
+	font_family := read_string_field(l, 1, c'font_family', '')
+	if font_family != '' {
+		accum.font_family = font_family
+	}
+	font_size := read_string_field(l, 1, c'font_size', '')
+	if font_size != '' {
+		accum.font_size = font_size
+	}
+	bg_color := read_string_field(l, 1, c'bg_color', '')
+	if bg_color != '' {
+		accum.bg_color = bg_color
+	}
+	fg_color := read_string_field(l, 1, c'fg_color', '')
+	if fg_color != '' {
+		accum.fg_color = fg_color
+	}
 	t := C.lua_getfield(l, 1, c'providers')
 	if t == lua.lua_ttable {
 		providers_idx := C.lua_gettop(l)
@@ -342,11 +366,31 @@ fn load_config() Config {
 		return default_config()
 	}
 
+	font_family := if accum.font_family != '' { accum.font_family } else { 'monospace' }
+	font_size := if accum.font_size != '' { accum.font_size } else { '12pt' }
+	bg_color := if accum.bg_color != '' { accum.bg_color } else { '#1e1e2e' }
+	fg_color := if accum.fg_color != '' { accum.fg_color } else { '#cdd6f4' }
+
+	mut bars := []BarDesc{cap: accum.bars.len}
+	for b in accum.bars {
+		bars << BarDesc{
+			...b
+			font_family: if b.font_family != '' { b.font_family } else { font_family }
+			font_size:   if b.font_size != '' { b.font_size } else { font_size }
+			bg_color:    if b.bg_color != '' { b.bg_color } else { bg_color }
+			fg_color:    if b.fg_color != '' { b.fg_color } else { fg_color }
+		}
+	}
+
 	return Config{
-		bars:     accum.bars
-		polls:    accum.polls
-		builtins: accum.builtins
-		shell:    accum.shell
+		font_family: font_family
+		font_size:   font_size
+		bg_color:    bg_color
+		fg_color:    fg_color
+		bars:        bars
+		polls:       accum.polls
+		builtins:    accum.builtins
+		shell:       accum.shell
 	}
 }
 
