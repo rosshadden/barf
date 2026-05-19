@@ -1,8 +1,11 @@
 -- Media player widget using playerctl.
 -- Shows the currently playing track with artist and title.
--- Requires: playerctl
+-- @requires playerctl
 
 local vbar = require("vbar")
+
+-- Use bash so subshell expansions work in poll commands.
+vbar.shell({ "bash", "-c" })
 
 -- Use playerctl's own formatting to get a clean combined string.
 -- Outputs nothing when no player is available, so the label stays blank.
@@ -11,10 +14,16 @@ vbar.poll("media", {
 	interval = 2,
 })
 
+vbar.poll("volume", {
+	shell = { "nu", "-c" },
+	command = [[$"(ponymix get-volume)%(try { ponymix is-muted; ' [muted]' } catch { '' })"]],
+	-- command = [[echo "$(ponymix get-volume)%"]],
+	-- command = [[echo "$(ponymix get-volume)% $(ponymix is-muted && echo [muted] || echo)"]],
+	-- command = [[playerctl metadata --format '{{artist}} - {{title}}' 2>/dev/null || echo '']],
+	interval = 1,
+})
+
 vbar.bar({
-	left = {
-		vbar.workspaces(),
-	},
 	center = {
 		vbar.label("${media}"),
 	},

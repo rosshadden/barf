@@ -113,8 +113,10 @@ fn main() {
 		}
 	}
 
+	default_shell := if cfg.shell.len > 0 { cfg.shell } else { ['sh', '-c'] }
 	for p in cfg.polls {
-		providers.start_poll(p.name, p.command, p.interval, store)
+		shell := if p.shell.len > 0 { p.shell } else { default_shell }
+		providers.start_poll(p.name, p.command, p.interval, shell, store)
 	}
 
 	ad := &AppData{

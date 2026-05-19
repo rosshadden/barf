@@ -26,6 +26,7 @@ struct PollDesc {
 	name     string
 	command  string
 	interval int = 1
+	shell    []string
 }
 
 struct BuiltinDesc {
@@ -37,6 +38,7 @@ struct Config {
 	bars     []BarDesc
 	polls    []PollDesc
 	builtins []BuiltinDesc
+	shell    []string
 }
 
 struct ContentData {
@@ -51,6 +53,7 @@ mut:
 	bars     []BarDesc
 	polls    []PollDesc
 	builtins []BuiltinDesc
+	shell    []string
 }
 
 fn read_string_field(l &C.lua_State, tbl_idx int, key &char, default_ string) string {
@@ -202,6 +205,7 @@ fn lua_poll_fn(l &C.lua_State) int {
 	name := unsafe { cstring_to_vstring(raw_name) }
 	command := read_string_field(l, 2, c'command', '')
 	interval := read_int_field(l, 2, c'interval', 1)
+	shell := read_string_array_field(l, 2, c'shell')
 	if name == '' || command == '' {
 		C.luaL_error(l, c'vbar.poll: name and command required')
 		return 0
@@ -211,7 +215,32 @@ fn lua_poll_fn(l &C.lua_State) int {
 		name:     name
 		command:  command
 		interval: interval
+		shell:    shell
 	}
+	return 0
+}
+
+fn lua_shell_fn(l &C.lua_State) int {
+	if C.lua_type(l, 1) != lua.lua_ttable {
+		C.luaL_error(l, c'vbar.shell: expected table (e.g. {"bash", "-c"})')
+		return 0
+	}
+	n := int(C.lua_rawlen(l, 1))
+	if n == 0 {
+		C.luaL_error(l, c'vbar.shell: table must not be empty')
+		return 0
+	}
+	mut shell := []string{}
+	for i := 1; i <= n; i++ {
+		C.lua_rawgeti(l, 1, i64(i))
+		if C.lua_type(l, -1) == lua.lua_tstring {
+			raw := C.lua_tolstring(l, -1, unsafe { nil })
+			shell << unsafe { cstring_to_vstring(raw) }
+		}
+		lua.lua_pop(l, 1)
+	}
+	mut accum := get_config_accum(l)
+	accum.shell = shell
 	return 0
 }
 
@@ -244,7 +273,7 @@ fn lua_ram_fn(l &C.lua_State) int {
 }
 
 fn open_vbar_module(l &C.lua_State) int {
-	C.lua_createtable(l, 0, 6)
+	C.lua_createtable(l, 0, 7)
 
 	C.lua_pushcclosure(l, voidptr(lua_bar_fn), 0)
 	C.lua_setfield(l, -2, c'bar')
@@ -263,6 +292,9 @@ fn open_vbar_module(l &C.lua_State) int {
 
 	C.lua_pushcclosure(l, voidptr(lua_ram_fn), 0)
 	C.lua_setfield(l, -2, c'ram')
+
+	C.lua_pushcclosure(l, voidptr(lua_shell_fn), 0)
+	C.lua_setfield(l, -2, c'shell')
 
 	return 1
 }
@@ -314,6 +346,7 @@ fn load_config() Config {
 		bars:     accum.bars
 		polls:    accum.polls
 		builtins: accum.builtins
+		shell:    accum.shell
 	}
 }
 
