@@ -276,6 +276,78 @@ fn lua_poll_fn(l &C.lua_State) int {
 	return 0
 }
 
+fn lua_format_value(l &C.lua_State, idx int, depth int) string {
+	if depth > 8 {
+		return '...'
+	}
+	abs := if idx > 0 { idx } else { C.lua_gettop(l) + idx + 1 }
+	t := C.lua_type(l, abs)
+	if t == lua.lua_tnil {
+		return 'nil'
+	}
+	if t == lua.lua_tboolean {
+		return if C.lua_toboolean(l, abs) != 0 { 'true' } else { 'false' }
+	}
+	if t == lua.lua_tnumber {
+		i := C.lua_tointegerx(l, abs, unsafe { nil })
+		n := C.lua_tonumberx(l, abs, unsafe { nil })
+		return if f64(i) == n { '${i}' } else { '${n}' }
+	}
+	if t == lua.lua_tstring {
+		raw := C.lua_tolstring(l, abs, unsafe { nil })
+		s := unsafe { cstring_to_vstring(raw) }
+		return if depth == 0 { s } else { '"${s}"' }
+	}
+	if t == lua.lua_tfunction {
+		return 'function'
+	}
+	if t == lua.lua_ttable {
+		mut parts := []string{}
+		prefix := '\t'.repeat(depth + 1)
+		C.lua_pushnil(l)
+		for C.lua_next(l, abs) != 0 {
+			key := lua_format_key(l, -2)
+			val := lua_format_value(l, -1, depth + 1)
+			parts << '${prefix}${key} = ${val}'
+			lua.lua_pop(l, 1)
+		}
+		if parts.len == 0 {
+			return '{}'
+		}
+		close := '\t'.repeat(depth)
+		return '{\n' + parts.join('\n') + '\n${close}}'
+	}
+	return '?'
+}
+
+fn lua_format_key(l &C.lua_State, idx int) string {
+	abs := if idx > 0 { idx } else { C.lua_gettop(l) + idx + 1 }
+	t := C.lua_type(l, abs)
+	if t == lua.lua_tstring {
+		raw := C.lua_tolstring(l, abs, unsafe { nil })
+		return unsafe { cstring_to_vstring(raw) }
+	}
+	if t == lua.lua_tnumber {
+		i := C.lua_tointegerx(l, abs, unsafe { nil })
+		return '[${i}]'
+	}
+	return '[?]'
+}
+
+fn lua_debug_fn(l &C.lua_State) int {
+	nargs := C.lua_gettop(l)
+	mut parts := []string{}
+	for i := 1; i <= nargs; i++ {
+		parts << lua_format_value(l, i, 0)
+	}
+	body := parts.join('\t')
+	mut p := os.new_process('notify-send')
+	p.set_args(['vbar', body])
+	p.wait()
+	p.close()
+	return 0
+}
+
 fn lua_exec_fn(l &C.lua_State) int {
 	if C.lua_type(l, 1) != lua.lua_tstring {
 		C.luaL_error(l, c'vbar.exec: expected string command')
@@ -376,7 +448,7 @@ fn lua_setup_fn(l &C.lua_State) int {
 }
 
 fn open_vbar_module(l &C.lua_State) int {
-	C.lua_createtable(l, 0, 6)
+	C.lua_createtable(l, 0, 7)
 
 	C.lua_pushcclosure(l, voidptr(lua_bar_fn), 0)
 	C.lua_setfield(l, -2, c'bar')
@@ -395,6 +467,9 @@ fn open_vbar_module(l &C.lua_State) int {
 
 	C.lua_pushcclosure(l, voidptr(lua_exec_fn), 0)
 	C.lua_setfield(l, -2, c'exec')
+
+	C.lua_pushcclosure(l, voidptr(lua_debug_fn), 0)
+	C.lua_setfield(l, -2, c'debug')
 
 	return 1
 }

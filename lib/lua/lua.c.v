@@ -76,6 +76,9 @@ pub fn C.lua_pushnil(L &C.lua_State)
 pub fn C.lua_pushlightuserdata(L &C.lua_State, p voidptr)
 pub fn C.lua_touserdata(L &C.lua_State, idx int) voidptr
 
+// Boolean
+pub fn C.lua_toboolean(L &C.lua_State, idx int) int
+
 // Read functions (real functions underlying macros)
 pub fn C.lua_tolstring(L &C.lua_State, idx int, len voidptr) &char
 pub fn C.lua_tointegerx(L &C.lua_State, idx int, isnum voidptr) i64
