@@ -8,6 +8,7 @@ import vars
 
 struct WidgetDesc {
 	kind            string
+	self_ref        int    = lua.lua_noref
 	active_color    string = '#89b4fa'
 	text            string
 	on_click        cmd.Command
@@ -17,6 +18,7 @@ struct WidgetDesc {
 
 struct BarDesc {
 	height      int = 30
+	self_ref    int = lua.lua_noref
 	font_family string
 	font_size   string
 	bg_color    string
@@ -256,8 +258,8 @@ fn lua_bar_fn(l &C.lua_State) int {
 	inst_idx := C.lua_gettop(l)
 
 	if C.lua_type(l, 1) == lua.lua_ttable {
-		for key in [c'height', c'font_family', c'font_size', c'bg_color', c'fg_color',
-			c'anchors', c'monitors', c'left', c'center', c'right', c'scroll', c'click'] {
+		for key in [c'height', c'font_family', c'font_size', c'bg_color', c'fg_color', c'anchors',
+			c'monitors', c'left', c'center', c'right', c'scroll', c'click'] {
 			copy_table_field(l, 1, inst_idx, key)
 		}
 	}
@@ -367,6 +369,7 @@ fn read_widget_from_table(l &C.lua_State, tbl_idx int) WidgetDesc {
 		'label' {
 			WidgetDesc{
 				kind:            'label'
+				self_ref:        self_ref
 				text:            read_string_field(l, tbl_idx, c'text', '')
 				on_click:        on_click
 				on_right_click:  on_right_click
@@ -376,6 +379,7 @@ fn read_widget_from_table(l &C.lua_State, tbl_idx int) WidgetDesc {
 		'workspaces' {
 			WidgetDesc{
 				kind:            'workspaces'
+				self_ref:        self_ref
 				active_color:    read_string_field(l, tbl_idx, c'active_color', '#89b4fa')
 				on_click:        on_click
 				on_right_click:  on_right_click
@@ -422,6 +426,7 @@ fn read_bar_from_ref(l &C.lua_State, ref int) BarDesc {
 
 	desc := BarDesc{
 		height:      read_int_field(l, tbl_idx, c'height', 30)
+		self_ref:    self_ref
 		font_family: read_string_field(l, tbl_idx, c'font_family', '')
 		font_size:   read_string_field(l, tbl_idx, c'font_size', '')
 		bg_color:    read_string_field(l, tbl_idx, c'bg_color', '')

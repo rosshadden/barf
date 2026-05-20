@@ -19,7 +19,7 @@ mut:
 	lua_rt &cmd.LuaRuntime   = unsafe { nil }
 }
 
-fn content_fn(container &C.GtkWidget, monitor_name string, data voidptr) {
+fn content_fn(container &C.GtkWidget, mon cmd.MonitorInfo, data voidptr) {
 	cd := unsafe { &ContentData(data) }
 	store := unsafe { &vars.VarStore(cd.store) }
 	gen := unsafe { &vars.Generation(cd.gen) }
@@ -29,19 +29,19 @@ fn content_fn(container &C.GtkWidget, monitor_name string, data voidptr) {
 	right_box := C.gtk_box_new(gtk.gtk_orientation_horizontal, 0)
 
 	for w in cd.left {
-		widget := make_widget(w, monitor_name, store, cd.shell, gen, cd.lua_rt)
+		widget := make_widget(w, mon, store, cd.shell, gen, cd.lua_rt)
 		if widget != unsafe { nil } {
 			C.gtk_box_pack_start(left_box, widget, 0, 0, 0)
 		}
 	}
 	for w in cd.center {
-		widget := make_widget(w, monitor_name, store, cd.shell, gen, cd.lua_rt)
+		widget := make_widget(w, mon, store, cd.shell, gen, cd.lua_rt)
 		if widget != unsafe { nil } {
 			C.gtk_box_pack_start(center_box, widget, 0, 0, 0)
 		}
 	}
 	for w in cd.right {
-		widget := make_widget(w, monitor_name, store, cd.shell, gen, cd.lua_rt)
+		widget := make_widget(w, mon, store, cd.shell, gen, cd.lua_rt)
 		if widget != unsafe { nil } {
 			C.gtk_box_pack_start(right_box, widget, 0, 0, 0)
 		}
@@ -52,15 +52,20 @@ fn content_fn(container &C.GtkWidget, monitor_name string, data voidptr) {
 	C.gtk_box_pack_end(container, right_box, 0, 0, 0)
 }
 
-fn make_widget(desc WidgetDesc, monitor_name string, store &vars.VarStore, shell []string, gen &vars.Generation, lua_rt voidptr) &C.GtkWidget {
+fn make_widget(desc WidgetDesc, mon cmd.MonitorInfo, store &vars.VarStore, shell []string, gen &vars.Generation, lua_rt voidptr) &C.GtkWidget {
+	new_self := cmd.clone_self_with_monitor(lua_rt, desc.self_ref, mon)
+	on_click := desc.on_click.with_self_ref(new_self)
+	on_right_click := desc.on_right_click.with_self_ref(new_self)
+	on_middle_click := desc.on_middle_click.with_self_ref(new_self)
+
 	return match desc.kind {
 		'label' {
-			label.make_widget(desc.text, store, gen, desc.on_click, desc.on_right_click,
-				desc.on_middle_click, shell, lua_rt)
+			label.make_widget(desc.text, store, gen, on_click, on_right_click, on_middle_click,
+				shell, lua_rt)
 		}
 		'workspaces' {
-			workspaces.make_widget(desc.active_color, monitor_name, desc.on_click,
-				desc.on_right_click, desc.on_middle_click, shell, gen, lua_rt)
+			workspaces.make_widget(desc.active_color, mon.name, on_click, on_right_click,
+				on_middle_click, shell, gen, lua_rt)
 		}
 		else {
 			eprintln('vbar: unknown widget type: ${desc.kind}')
@@ -94,8 +99,8 @@ fn setup(mut ad AppData) {
 		}
 		if p.command.is_set() {
 			shell := if p.shell.len > 0 { p.shell } else { default_shell }
-			providers.start_poll(p.name, p.command, p.interval, shell, ad.store,
-				ad.gen, voidptr(ad.lua_rt))
+			providers.start_poll(p.name, p.command, p.interval, shell, ad.store, ad.gen,
+				voidptr(ad.lua_rt))
 		}
 	}
 
@@ -126,6 +131,7 @@ fn setup(mut ad AppData) {
 
 		event_refs := bar.create(ad.app, bar.BarConfig{
 			height:       desc.height
+			self_ref:     desc.self_ref
 			anchors:      anchors
 			monitors:     desc.monitors
 			content:      content_fn

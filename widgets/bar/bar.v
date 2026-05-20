@@ -4,6 +4,7 @@ import cmd
 import json
 import lib.gtk
 import lib.layershell
+import lib.lua
 import os
 
 pub enum Anchor {
@@ -13,23 +14,24 @@ pub enum Anchor {
 	bottom
 }
 
-pub type ContentFn = fn (&C.GtkWidget, string, voidptr)
+pub type ContentFn = fn (&C.GtkWidget, cmd.MonitorInfo, voidptr)
 
 pub struct BarConfig {
 pub:
-	height       int         = 30
-	anchors      []Anchor    = [Anchor.left, .right, .top]
-	monitors     []string    = []
-	content      ContentFn   = unsafe { nil }
-	content_data voidptr     = unsafe { nil }
-	font_family  string      = 'monospace'
-	font_size    string      = '10pt'
-	bg_color     string      = '#1e1e2e'
-	fg_color     string      = '#cdd6f4'
+	height       int       = 30
+	self_ref     int       = lua.lua_noref
+	anchors      []Anchor  = [Anchor.left, .right, .top]
+	monitors     []string  = []
+	content      ContentFn = unsafe { nil }
+	content_data voidptr   = unsafe { nil }
+	font_family  string    = 'monospace'
+	font_size    string    = '10pt'
+	bg_color     string    = '#1e1e2e'
+	fg_color     string    = '#cdd6f4'
 	on_scroll    cmd.Command
 	on_click     cmd.Command
 	shell        []string
-	lua_rt       voidptr     = unsafe { nil }
+	lua_rt       voidptr = unsafe { nil }
 }
 
 @[heap]
@@ -41,9 +43,14 @@ struct BarEventState {
 }
 
 struct HyprMon {
-	name string
-	x    int
-	y    int
+	id           int
+	name         string
+	x            int
+	y            int
+	width        int
+	height       int
+	refresh_rate f64 @[json: 'refreshRate']
+	scale        f64
 }
 
 fn apply_css(cfg BarConfig) {
@@ -66,13 +73,22 @@ fn get_hypr_monitors() []HyprMon {
 	return json.decode([]HyprMon, result.output) or { [] }
 }
 
-fn match_monitor(monitors []HyprMon, x int, y int) string {
+fn match_monitor(monitors []HyprMon, x int, y int) cmd.MonitorInfo {
 	for m in monitors {
 		if m.x == x && m.y == y {
-			return m.name
+			return cmd.MonitorInfo{
+				name:         m.name
+				id:           m.id
+				x:            m.x
+				y:            m.y
+				width:        m.width
+				height:       m.height
+				refresh_rate: m.refresh_rate
+				scale:        m.scale
+			}
 		}
 	}
-	return ''
+	return cmd.MonitorInfo{}
 }
 
 pub fn create(app &C.GtkApplication, cfg BarConfig) []voidptr {
@@ -87,11 +103,11 @@ pub fn create(app &C.GtkApplication, cfg BarConfig) []voidptr {
 		gdk_mon := C.gdk_display_get_monitor(display, i)
 		mut rect := C.GdkRectangle{}
 		C.gdk_monitor_get_geometry(gdk_mon, &rect)
-		monitor_name := match_monitor(hypr_monitors, rect.x, rect.y)
-		if cfg.monitors.len > 0 && monitor_name !in cfg.monitors {
+		mon := match_monitor(hypr_monitors, rect.x, rect.y)
+		if cfg.monitors.len > 0 && mon.name !in cfg.monitors {
 			continue
 		}
-		r := create_for_monitor(app, cfg, gdk_mon, monitor_name)
+		r := create_for_monitor(app, cfg, gdk_mon, mon)
 		if r != unsafe { nil } {
 			refs << voidptr(r)
 		}
@@ -99,7 +115,7 @@ pub fn create(app &C.GtkApplication, cfg BarConfig) []voidptr {
 	return refs
 }
 
-fn create_for_monitor(app &C.GtkApplication, cfg BarConfig, gdk_mon &C.GdkMonitor, monitor_name string) &BarEventState {
+fn create_for_monitor(app &C.GtkApplication, cfg BarConfig, gdk_mon &C.GdkMonitor, mon cmd.MonitorInfo) &BarEventState {
 	win_widget := C.gtk_application_window_new(app)
 	win := unsafe { &C.GtkWindow(win_widget) }
 
@@ -126,9 +142,10 @@ fn create_for_monitor(app &C.GtkApplication, cfg BarConfig, gdk_mon &C.GdkMonito
 		C.gtk_container_add(win_widget, event_box)
 		C.gtk_container_add(event_box, container)
 
+		new_self := cmd.clone_self_with_monitor(cfg.lua_rt, cfg.self_ref, mon)
 		state = &BarEventState{
-			on_scroll: cfg.on_scroll
-			on_click:  cfg.on_click
+			on_scroll: cfg.on_scroll.with_self_ref(new_self)
+			on_click:  cfg.on_click.with_self_ref(new_self)
 			shell:     cfg.shell
 			lua_rt:    cfg.lua_rt
 		}
@@ -148,7 +165,7 @@ fn create_for_monitor(app &C.GtkApplication, cfg BarConfig, gdk_mon &C.GdkMonito
 	}
 
 	if cfg.content != unsafe { nil } {
-		cfg.content(container, monitor_name, cfg.content_data)
+		cfg.content(container, mon, cfg.content_data)
 	}
 
 	C.gtk_widget_show_all(win_widget)

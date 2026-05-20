@@ -100,7 +100,8 @@ fn render(mut state WorkspaceState) {
 	state.refs = []&WsClickState{}
 	C.gtk_container_foreach(state.container, voidptr(destroy_child), unsafe { nil })
 
-	has_clicks := state.on_click.is_set() || state.on_right_click.is_set() || state.on_middle_click.is_set()
+	has_clicks := state.on_click.is_set() || state.on_right_click.is_set()
+		|| state.on_middle_click.is_set()
 
 	for ws in state.workspaces {
 		if ws.id < 0 && ws.name.contains('special:') {

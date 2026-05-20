@@ -22,6 +22,28 @@ pub fn (c Command) is_set() bool {
 	return c.kind != .none
 }
 
+pub fn (c Command) with_self_ref(new_self_ref int) Command {
+	if c.kind == .none || new_self_ref == lua.lua_noref {
+		return c
+	}
+	return Command{
+		...c
+		self_ref: new_self_ref
+	}
+}
+
+pub struct MonitorInfo {
+pub:
+	name         string
+	id           int
+	x            int
+	y            int
+	width        int
+	height       int
+	refresh_rate f64
+	scale        f64
+}
+
 @[heap]
 pub struct LuaRuntime {
 pub mut:
@@ -146,6 +168,56 @@ pub fn exec(c Command, shell []string, rt_ptr voidptr) ?string {
 			return call_lua(rt_ptr, c.lua_ref, c.self_ref, [])
 		}
 	}
+}
+
+fn push_monitor_table(l &C.lua_State, mon MonitorInfo) {
+	C.lua_createtable(l, 0, 8)
+	idx := C.lua_gettop(l)
+	C.lua_pushstring(l, mon.name.str)
+	C.lua_setfield(l, idx, c'name')
+	C.lua_pushinteger(l, i64(mon.id))
+	C.lua_setfield(l, idx, c'id')
+	C.lua_pushinteger(l, i64(mon.x))
+	C.lua_setfield(l, idx, c'x')
+	C.lua_pushinteger(l, i64(mon.y))
+	C.lua_setfield(l, idx, c'y')
+	C.lua_pushinteger(l, i64(mon.width))
+	C.lua_setfield(l, idx, c'width')
+	C.lua_pushinteger(l, i64(mon.height))
+	C.lua_setfield(l, idx, c'height')
+	C.lua_pushnumber(l, mon.refresh_rate)
+	C.lua_setfield(l, idx, c'refresh_rate')
+	C.lua_pushnumber(l, mon.scale)
+	C.lua_setfield(l, idx, c'scale')
+}
+
+pub fn clone_self_with_monitor(rt_ptr voidptr, orig_self_ref int, mon MonitorInfo) int {
+	if rt_ptr == unsafe { nil } {
+		return lua.lua_noref
+	}
+	mut rt := unsafe { &LuaRuntime(rt_ptr) }
+	rt.mtx.@lock()
+	defer {
+		rt.mtx.unlock()
+	}
+	if rt.closed || rt.l == unsafe { nil } {
+		return lua.lua_noref
+	}
+
+	C.lua_createtable(rt.l, 0, 1)
+	new_idx := C.lua_gettop(rt.l)
+
+	push_monitor_table(rt.l, mon)
+	C.lua_setfield(rt.l, new_idx, c'monitor')
+
+	if orig_self_ref != lua.lua_noref {
+		C.lua_createtable(rt.l, 0, 1)
+		C.lua_rawgeti(rt.l, lua.lua_registryindex, i64(orig_self_ref))
+		C.lua_setfield(rt.l, -2, c'__index')
+		C.lua_setmetatable(rt.l, new_idx)
+	}
+
+	return C.luaL_ref(rt.l, lua.lua_registryindex)
 }
 
 pub fn bind_store(rt &LuaRuntime, store voidptr) {
