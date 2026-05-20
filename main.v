@@ -188,12 +188,22 @@ fn do_reload(data voidptr) int {
 	return 0
 }
 
+fn on_monitor_changed(display voidptr, monitor voidptr, data voidptr) {
+	C.g_idle_add(voidptr(do_reload), data)
+}
+
 fn on_activate(app &C.GtkApplication, data voidptr) {
 	mut ad := unsafe { &AppData(data) }
 	unsafe {
 		ad.app = app
 	}
 	setup(mut ad)
+
+	display := C.gdk_display_get_default()
+	C.g_signal_connect_data(display, c'monitor-added', voidptr(on_monitor_changed), data,
+		unsafe { nil }, 0)
+	C.g_signal_connect_data(display, c'monitor-removed', voidptr(on_monitor_changed), data,
+		unsafe { nil }, 0)
 }
 
 fn watch_config(dir string, data voidptr) {
