@@ -55,7 +55,8 @@ fn content_fn(container &C.GtkWidget, monitor_name string, data voidptr) {
 fn make_widget(desc WidgetDesc, monitor_name string, store &vars.VarStore, shell []string, gen &vars.Generation, lua_rt voidptr) &C.GtkWidget {
 	return match desc.kind {
 		'label' {
-			label.make_widget(desc.text, store, gen)
+			label.make_widget(desc.text, store, gen, desc.on_click, desc.on_right_click,
+				desc.on_middle_click, shell, lua_rt)
 		}
 		'workspaces' {
 			workspaces.make_widget(desc.active_color, monitor_name, desc.on_click,
@@ -72,6 +73,8 @@ fn setup(mut ad AppData) {
 	cfg := ad.config
 	default_shell := if cfg.shell.len > 0 { cfg.shell } else { ['sh', '-c'] }
 
+	cmd.bind_store(ad.lua_rt, voidptr(ad.store))
+
 	providers.start_time(ad.store, ad.gen)
 
 	for b in cfg.builtins {
@@ -83,8 +86,17 @@ fn setup(mut ad AppData) {
 	}
 
 	for p in cfg.polls {
-		shell := if p.shell.len > 0 { p.shell } else { default_shell }
-		providers.start_poll(p.name, p.command, p.interval, shell, ad.store, ad.gen, voidptr(ad.lua_rt))
+		if p.value != '' {
+			unsafe {
+				mut store := ad.store
+				store.set(p.name, p.value)
+			}
+		}
+		if p.command.is_set() {
+			shell := if p.shell.len > 0 { p.shell } else { default_shell }
+			providers.start_poll(p.name, p.command, p.interval, shell, ad.store,
+				ad.gen, voidptr(ad.lua_rt))
+		}
 	}
 
 	mut content_refs := []&ContentData{}

@@ -1,8 +1,10 @@
 module main
 
 import cmd
+import lib.gtk
 import lib.lua
 import os
+import vars
 
 struct WidgetDesc {
 	kind            string
@@ -30,6 +32,7 @@ struct BarDesc {
 
 struct PollDesc {
 	name     string
+	value    string
 	command  cmd.Command
 	interval int = 1
 	shell    []string
@@ -67,11 +70,13 @@ mut:
 	font_size   string
 	bg_color    string
 	fg_color    string
-	bars        []BarDesc
-	polls       []PollDesc
-	builtins    []BuiltinDesc
 	shell       []string
+	builtins    []BuiltinDesc
+	bar_refs    []int
+	poll_refs   []int
 }
+
+// --- Field reading helpers ---
 
 fn read_string_field(l &C.lua_State, tbl_idx int, key &char, default_ string) string {
 	t := C.lua_getfield(l, tbl_idx, key)
@@ -117,7 +122,7 @@ fn read_string_array_field(l &C.lua_State, tbl_idx int, key &char) []string {
 	return result
 }
 
-fn read_command_field(l &C.lua_State, tbl_idx int, key &char) cmd.Command {
+fn read_method_command(l &C.lua_State, tbl_idx int, key &char, self_ref int) cmd.Command {
 	t := C.lua_getfield(l, tbl_idx, key)
 	if t == lua.lua_tstring {
 		raw := C.lua_tolstring(l, -1, unsafe { nil })
@@ -131,15 +136,260 @@ fn read_command_field(l &C.lua_State, tbl_idx int, key &char) cmd.Command {
 	if t == lua.lua_tfunction {
 		ref := C.luaL_ref(l, lua.lua_registryindex)
 		return cmd.Command{
-			kind:    .lua_fn
-			lua_ref: ref
+			kind:     .lua_fn
+			lua_ref:  ref
+			self_ref: self_ref
 		}
 	}
 	lua.lua_pop(l, 1)
 	return cmd.Command{}
 }
 
-fn read_widget_list(l &C.lua_State, tbl_idx int, key &char) []WidgetDesc {
+fn get_config_accum(l &C.lua_State) &ConfigAccum {
+	C.lua_getfield(l, lua.lua_registryindex, c'vbar.config')
+	ptr := C.lua_touserdata(l, -1)
+	lua.lua_pop(l, 1)
+	return unsafe { &ConfigAccum(ptr) }
+}
+
+// --- Metatable setup ---
+
+fn setup_metatable(l &C.lua_State, registry_key &char) {
+	C.lua_createtable(l, 0, 1)
+	mt_idx := C.lua_gettop(l)
+	C.lua_pushvalue(l, mt_idx)
+	C.lua_setfield(l, mt_idx, c'__index')
+	C.lua_setfield(l, lua.lua_registryindex, registry_key)
+}
+
+fn apply_metatable(l &C.lua_State, inst_idx int, registry_key &char) {
+	C.lua_getfield(l, lua.lua_registryindex, registry_key)
+	C.lua_setmetatable(l, inst_idx)
+}
+
+fn setup_var_metatable(l &C.lua_State) {
+	C.lua_createtable(l, 0, 2)
+	mt_idx := C.lua_gettop(l)
+	C.lua_pushvalue(l, mt_idx)
+	C.lua_setfield(l, mt_idx, c'__index')
+	C.lua_pushcclosure(l, voidptr(lua_var_set_fn), 0)
+	C.lua_setfield(l, mt_idx, c'set')
+	C.lua_setfield(l, lua.lua_registryindex, c'vbar.var.mt')
+}
+
+struct VarSetUpdate {
+	name  string
+	value string
+	store voidptr
+}
+
+fn var_set_apply(data voidptr) int {
+	update := unsafe { &VarSetUpdate(data) }
+	mut store := unsafe { &vars.VarStore(update.store) }
+	store.set(update.name, update.value)
+	return 0
+}
+
+fn lua_value_to_string(l &C.lua_State, idx int) string {
+	t := C.lua_type(l, idx)
+	if t == lua.lua_tstring {
+		raw := C.lua_tolstring(l, idx, unsafe { nil })
+		return unsafe { cstring_to_vstring(raw) }
+	}
+	if t == lua.lua_tnumber {
+		i := C.lua_tointegerx(l, idx, unsafe { nil })
+		n := C.lua_tonumberx(l, idx, unsafe { nil })
+		return if f64(i) == n { '${i}' } else { '${n}' }
+	}
+	if t == lua.lua_tboolean {
+		return if C.lua_toboolean(l, idx) != 0 { 'true' } else { 'false' }
+	}
+	return ''
+}
+
+fn lua_var_set_fn(l &C.lua_State) int {
+	if C.lua_type(l, 1) != lua.lua_ttable {
+		return 0
+	}
+
+	C.lua_getfield(l, 1, c'name')
+	if C.lua_type(l, -1) != lua.lua_tstring {
+		lua.lua_pop(l, 1)
+		return 0
+	}
+	raw_name := C.lua_tolstring(l, -1, unsafe { nil })
+	name := unsafe { cstring_to_vstring(raw_name) }
+	lua.lua_pop(l, 1)
+
+	value := lua_value_to_string(l, 2)
+
+	C.lua_getfield(l, lua.lua_registryindex, c'vbar.store')
+	store_ptr := C.lua_touserdata(l, -1)
+	lua.lua_pop(l, 1)
+	if store_ptr == unsafe { nil } {
+		return 0
+	}
+
+	update := &VarSetUpdate{
+		name:  name
+		value: value
+		store: store_ptr
+	}
+	C.g_idle_add(voidptr(var_set_apply), voidptr(update))
+
+	return 0
+}
+
+// --- Entity constructors ---
+
+fn copy_table_field(l &C.lua_State, src_idx int, dst_idx int, key &char) {
+	t := C.lua_getfield(l, src_idx, key)
+	if t != lua.lua_tnil {
+		C.lua_setfield(l, dst_idx, key)
+	} else {
+		lua.lua_pop(l, 1)
+	}
+}
+
+fn lua_bar_fn(l &C.lua_State) int {
+	C.lua_createtable(l, 0, 14)
+	inst_idx := C.lua_gettop(l)
+
+	if C.lua_type(l, 1) == lua.lua_ttable {
+		for key in [c'height', c'font_family', c'font_size', c'bg_color', c'fg_color',
+			c'anchors', c'monitors', c'left', c'center', c'right', c'scroll', c'click'] {
+			copy_table_field(l, 1, inst_idx, key)
+		}
+	}
+
+	C.lua_pushstring(l, c'bar')
+	C.lua_setfield(l, inst_idx, c'__vbar_type')
+
+	apply_metatable(l, inst_idx, c'vbar.bar.mt')
+
+	C.lua_pushvalue(l, inst_idx)
+	ref := C.luaL_ref(l, lua.lua_registryindex)
+	mut accum := get_config_accum(l)
+	accum.bar_refs << ref
+
+	return 1
+}
+
+fn lua_label_fn(l &C.lua_State) int {
+	C.lua_createtable(l, 0, 6)
+	inst_idx := C.lua_gettop(l)
+
+	arg_type := C.lua_type(l, 1)
+	if arg_type == lua.lua_tstring {
+		raw := C.lua_tolstring(l, 1, unsafe { nil })
+		C.lua_pushstring(l, raw)
+		C.lua_setfield(l, inst_idx, c'text')
+	} else if arg_type == lua.lua_ttable {
+		for key in [c'text', c'click', c'right_click', c'middle_click'] {
+			copy_table_field(l, 1, inst_idx, key)
+		}
+	}
+
+	C.lua_pushstring(l, c'label')
+	C.lua_setfield(l, inst_idx, c'__vbar_type')
+
+	apply_metatable(l, inst_idx, c'vbar.label.mt')
+
+	return 1
+}
+
+fn lua_workspaces_fn(l &C.lua_State) int {
+	C.lua_createtable(l, 0, 6)
+	inst_idx := C.lua_gettop(l)
+
+	if C.lua_type(l, 1) == lua.lua_ttable {
+		for key in [c'active_color', c'click', c'right_click', c'middle_click'] {
+			copy_table_field(l, 1, inst_idx, key)
+		}
+	}
+
+	C.lua_pushstring(l, c'workspaces')
+	C.lua_setfield(l, inst_idx, c'__vbar_type')
+
+	apply_metatable(l, inst_idx, c'vbar.workspaces.mt')
+
+	return 1
+}
+
+fn lua_var_fn(l &C.lua_State) int {
+	if C.lua_type(l, 1) != lua.lua_tstring {
+		C.luaL_error(l, c'vbar.var: expected (name, opts)')
+		return 0
+	}
+
+	C.lua_createtable(l, 0, 6)
+	inst_idx := C.lua_gettop(l)
+
+	raw := C.lua_tolstring(l, 1, unsafe { nil })
+	C.lua_pushstring(l, raw)
+	C.lua_setfield(l, inst_idx, c'name')
+
+	if C.lua_type(l, 2) == lua.lua_ttable {
+		for key in [c'poll', c'interval', c'shell', c'value'] {
+			copy_table_field(l, 2, inst_idx, key)
+		}
+	}
+
+	C.lua_pushstring(l, c'var')
+	C.lua_setfield(l, inst_idx, c'__vbar_type')
+
+	apply_metatable(l, inst_idx, c'vbar.var.mt')
+
+	C.lua_pushvalue(l, inst_idx)
+	ref := C.luaL_ref(l, lua.lua_registryindex)
+	mut accum := get_config_accum(l)
+	accum.poll_refs << ref
+
+	return 1
+}
+
+// --- Deferred reading (after script finishes) ---
+
+fn read_widget_from_table(l &C.lua_State, tbl_idx int) WidgetDesc {
+	kind := read_string_field(l, tbl_idx, c'__vbar_type', '')
+	if kind == '' {
+		return WidgetDesc{}
+	}
+
+	C.lua_pushvalue(l, tbl_idx)
+	self_ref := C.luaL_ref(l, lua.lua_registryindex)
+
+	on_click := read_method_command(l, tbl_idx, c'click', self_ref)
+	on_right_click := read_method_command(l, tbl_idx, c'right_click', self_ref)
+	on_middle_click := read_method_command(l, tbl_idx, c'middle_click', self_ref)
+
+	return match kind {
+		'label' {
+			WidgetDesc{
+				kind:            'label'
+				text:            read_string_field(l, tbl_idx, c'text', '')
+				on_click:        on_click
+				on_right_click:  on_right_click
+				on_middle_click: on_middle_click
+			}
+		}
+		'workspaces' {
+			WidgetDesc{
+				kind:            'workspaces'
+				active_color:    read_string_field(l, tbl_idx, c'active_color', '#89b4fa')
+				on_click:        on_click
+				on_right_click:  on_right_click
+				on_middle_click: on_middle_click
+			}
+		}
+		else {
+			eprintln('vbar: unknown widget type in config: ${kind}')
+			WidgetDesc{}
+		}
+	}
+}
+
+fn read_widget_list_from_refs(l &C.lua_State, tbl_idx int, key &char) []WidgetDesc {
 	mut result := []WidgetDesc{}
 	t := C.lua_getfield(l, tbl_idx, key)
 	if t != lua.lua_ttable {
@@ -152,21 +402,9 @@ fn read_widget_list(l &C.lua_State, tbl_idx int, key &char) []WidgetDesc {
 		C.lua_rawgeti(l, arr_idx, i64(i))
 		if C.lua_type(l, -1) == lua.lua_ttable {
 			widget_tbl := C.lua_gettop(l)
-			kind := read_string_field(l, widget_tbl, c'type', '')
-			active_color := read_string_field(l, widget_tbl, c'active_color', '#89b4fa')
-			text := read_string_field(l, widget_tbl, c'text', '')
-			on_click := read_command_field(l, widget_tbl, c'on_click')
-			on_right_click := read_command_field(l, widget_tbl, c'on_right_click')
-			on_middle_click := read_command_field(l, widget_tbl, c'on_middle_click')
-			if kind != '' {
-				result << WidgetDesc{
-					kind:            kind
-					active_color:    active_color
-					text:            text
-					on_click:        on_click
-					on_right_click:  on_right_click
-					on_middle_click: on_middle_click
-				}
+			desc := read_widget_from_table(l, widget_tbl)
+			if desc.kind != '' {
+				result << desc
 			}
 		}
 		lua.lua_pop(l, 1)
@@ -175,106 +413,57 @@ fn read_widget_list(l &C.lua_State, tbl_idx int, key &char) []WidgetDesc {
 	return result
 }
 
-fn get_config_accum(l &C.lua_State) &ConfigAccum {
-	C.lua_getfield(l, lua.lua_registryindex, c'vbar.config')
-	ptr := C.lua_touserdata(l, -1)
-	lua.lua_pop(l, 1)
-	return unsafe { &ConfigAccum(ptr) }
-}
+fn read_bar_from_ref(l &C.lua_State, ref int) BarDesc {
+	C.lua_rawgeti(l, lua.lua_registryindex, i64(ref))
+	tbl_idx := C.lua_gettop(l)
 
-fn lua_bar_fn(l &C.lua_State) int {
-	if C.lua_type(l, 1) != lua.lua_ttable {
-		C.luaL_error(l, c'vbar.bar: expected table argument')
-		return 0
-	}
+	C.lua_pushvalue(l, tbl_idx)
+	self_ref := C.luaL_ref(l, lua.lua_registryindex)
+
 	desc := BarDesc{
-		height:      read_int_field(l, 1, c'height', 30)
-		font_family: read_string_field(l, 1, c'font_family', '')
-		font_size:   read_string_field(l, 1, c'font_size', '')
-		bg_color:    read_string_field(l, 1, c'bg_color', '')
-		fg_color:    read_string_field(l, 1, c'fg_color', '')
-		anchors:     read_string_array_field(l, 1, c'anchors')
-		monitors:    read_string_array_field(l, 1, c'monitors')
-		on_scroll:   read_command_field(l, 1, c'on_scroll')
-		on_click:    read_command_field(l, 1, c'on_click')
-		left:        read_widget_list(l, 1, c'left')
-		center:      read_widget_list(l, 1, c'center')
-		right:       read_widget_list(l, 1, c'right')
+		height:      read_int_field(l, tbl_idx, c'height', 30)
+		font_family: read_string_field(l, tbl_idx, c'font_family', '')
+		font_size:   read_string_field(l, tbl_idx, c'font_size', '')
+		bg_color:    read_string_field(l, tbl_idx, c'bg_color', '')
+		fg_color:    read_string_field(l, tbl_idx, c'fg_color', '')
+		anchors:     read_string_array_field(l, tbl_idx, c'anchors')
+		monitors:    read_string_array_field(l, tbl_idx, c'monitors')
+		on_scroll:   read_method_command(l, tbl_idx, c'scroll', self_ref)
+		on_click:    read_method_command(l, tbl_idx, c'click', self_ref)
+		left:        read_widget_list_from_refs(l, tbl_idx, c'left')
+		center:      read_widget_list_from_refs(l, tbl_idx, c'center')
+		right:       read_widget_list_from_refs(l, tbl_idx, c'right')
 	}
-	mut accum := get_config_accum(l)
-	accum.bars << desc
-	return 0
+
+	lua.lua_pop(l, 1)
+	return desc
 }
 
-fn lua_label_fn(l &C.lua_State) int {
-	if C.lua_type(l, 1) != lua.lua_tstring {
-		C.luaL_error(l, c'vbar.label: expected string template')
-		return 0
-	}
-	raw := C.lua_tolstring(l, 1, unsafe { nil })
-	text := unsafe { cstring_to_vstring(raw) }
-	C.lua_createtable(l, 0, 2)
-	C.lua_pushstring(l, c'label')
-	C.lua_setfield(l, -2, c'type')
-	C.lua_pushstring(l, text.str)
-	C.lua_setfield(l, -2, c'text')
-	return 1
-}
+fn read_var_from_ref(l &C.lua_State, ref int) PollDesc {
+	C.lua_rawgeti(l, lua.lua_registryindex, i64(ref))
+	tbl_idx := C.lua_gettop(l)
 
-fn lua_workspaces_fn(l &C.lua_State) int {
-	nargs := C.lua_gettop(l)
-	C.lua_createtable(l, 0, 5)
-	C.lua_pushstring(l, c'workspaces')
-	C.lua_setfield(l, -2, c'type')
+	C.lua_pushvalue(l, tbl_idx)
+	self_ref := C.luaL_ref(l, lua.lua_registryindex)
 
-	if nargs >= 1 && C.lua_type(l, 1) == lua.lua_ttable {
-		t := C.lua_getfield(l, 1, c'active_color')
-		if t == lua.lua_tstring {
-			C.lua_setfield(l, -2, c'active_color')
-		} else {
-			lua.lua_pop(l, 1)
-			C.lua_pushstring(l, c'#89b4fa')
-			C.lua_setfield(l, -2, c'active_color')
-		}
+	name := read_string_field(l, tbl_idx, c'name', '')
+	value := read_string_field(l, tbl_idx, c'value', '')
+	command := read_method_command(l, tbl_idx, c'poll', self_ref)
+	interval := read_int_field(l, tbl_idx, c'interval', 1)
+	shell := read_string_array_field(l, tbl_idx, c'shell')
 
-		for field in [c'on_click', c'on_right_click', c'on_middle_click'] {
-			ft := C.lua_getfield(l, 1, field)
-			if ft == lua.lua_tstring || ft == lua.lua_tfunction {
-				C.lua_setfield(l, -2, field)
-			} else {
-				lua.lua_pop(l, 1)
-			}
-		}
-	} else {
-		C.lua_pushstring(l, c'#89b4fa')
-		C.lua_setfield(l, -2, c'active_color')
-	}
-	return 1
-}
+	lua.lua_pop(l, 1)
 
-fn lua_poll_fn(l &C.lua_State) int {
-	if C.lua_type(l, 1) != lua.lua_tstring || C.lua_type(l, 2) != lua.lua_ttable {
-		C.luaL_error(l, c'vbar.poll: expected (name, {command, interval})')
-		return 0
-	}
-	raw_name := C.lua_tolstring(l, 1, unsafe { nil })
-	name := unsafe { cstring_to_vstring(raw_name) }
-	command := read_command_field(l, 2, c'command')
-	interval := read_int_field(l, 2, c'interval', 1)
-	shell := read_string_array_field(l, 2, c'shell')
-	if name == '' || !command.is_set() {
-		C.luaL_error(l, c'vbar.poll: name and command required')
-		return 0
-	}
-	mut accum := get_config_accum(l)
-	accum.polls << PollDesc{
+	return PollDesc{
 		name:     name
+		value:    value
 		command:  command
 		interval: interval
 		shell:    shell
 	}
-	return 0
 }
+
+// --- Utility Lua functions (unchanged) ---
 
 fn lua_format_value(l &C.lua_State, idx int, depth int) string {
 	if depth > 8 {
@@ -447,32 +636,42 @@ fn lua_setup_fn(l &C.lua_State) int {
 	return 0
 }
 
+// --- Module registration ---
+
 fn open_vbar_module(l &C.lua_State) int {
 	C.lua_createtable(l, 0, 7)
+	mod_idx := C.lua_gettop(l)
+
+	setup_metatable(l, c'vbar.bar.mt')
+	setup_metatable(l, c'vbar.label.mt')
+	setup_metatable(l, c'vbar.workspaces.mt')
+	setup_var_metatable(l)
 
 	C.lua_pushcclosure(l, voidptr(lua_bar_fn), 0)
-	C.lua_setfield(l, -2, c'bar')
+	C.lua_setfield(l, mod_idx, c'bar')
 
 	C.lua_pushcclosure(l, voidptr(lua_label_fn), 0)
-	C.lua_setfield(l, -2, c'label')
+	C.lua_setfield(l, mod_idx, c'label')
 
 	C.lua_pushcclosure(l, voidptr(lua_workspaces_fn), 0)
-	C.lua_setfield(l, -2, c'workspaces')
+	C.lua_setfield(l, mod_idx, c'workspaces')
 
-	C.lua_pushcclosure(l, voidptr(lua_poll_fn), 0)
-	C.lua_setfield(l, -2, c'poll')
+	C.lua_pushcclosure(l, voidptr(lua_var_fn), 0)
+	C.lua_setfield(l, mod_idx, c'var')
 
 	C.lua_pushcclosure(l, voidptr(lua_setup_fn), 0)
-	C.lua_setfield(l, -2, c'setup')
+	C.lua_setfield(l, mod_idx, c'setup')
 
 	C.lua_pushcclosure(l, voidptr(lua_exec_fn), 0)
-	C.lua_setfield(l, -2, c'exec')
+	C.lua_setfield(l, mod_idx, c'exec')
 
 	C.lua_pushcclosure(l, voidptr(lua_debug_fn), 0)
-	C.lua_setfield(l, -2, c'debug')
+	C.lua_setfield(l, mod_idx, c'debug')
 
 	return 1
 }
+
+// --- Config loading ---
 
 fn config_dir() string {
 	xdg := os.getenv('XDG_CONFIG_HOME')
@@ -525,8 +724,9 @@ fn load_config() (Config, &C.lua_State) {
 	bg_color := if accum.bg_color != '' { accum.bg_color } else { '#1e1e2e' }
 	fg_color := if accum.fg_color != '' { accum.fg_color } else { '#cdd6f4' }
 
-	mut bars := []BarDesc{cap: accum.bars.len}
-	for b in accum.bars {
+	mut bars := []BarDesc{cap: accum.bar_refs.len}
+	for ref in accum.bar_refs {
+		b := read_bar_from_ref(l, ref)
 		bars << BarDesc{
 			...b
 			font_family: if b.font_family != '' { b.font_family } else { font_family }
@@ -536,13 +736,18 @@ fn load_config() (Config, &C.lua_State) {
 		}
 	}
 
+	mut polls := []PollDesc{cap: accum.poll_refs.len}
+	for ref in accum.poll_refs {
+		polls << read_var_from_ref(l, ref)
+	}
+
 	return Config{
 		font_family: font_family
 		font_size:   font_size
 		bg_color:    bg_color
 		fg_color:    fg_color
 		bars:        bars
-		polls:       accum.polls
+		polls:       polls
 		builtins:    accum.builtins
 		shell:       accum.shell
 	}, l

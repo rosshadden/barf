@@ -12,9 +12,10 @@ pub enum CommandKind {
 
 pub struct Command {
 pub:
-	kind    CommandKind
-	str_val string
-	lua_ref int
+	kind     CommandKind
+	str_val  string
+	lua_ref  int
+	self_ref int = lua.lua_noref
 }
 
 pub fn (c Command) is_set() bool {
@@ -47,7 +48,7 @@ pub fn (mut rt LuaRuntime) close() {
 	rt.closed = true
 }
 
-fn call_lua(rt_ptr voidptr, ref int, args []string) ?string {
+fn call_lua(rt_ptr voidptr, ref int, self_ref int, args []string) ?string {
 	if rt_ptr == unsafe { nil } {
 		return none
 	}
@@ -60,10 +61,15 @@ fn call_lua(rt_ptr voidptr, ref int, args []string) ?string {
 		return none
 	}
 	C.lua_rawgeti(rt.l, lua.lua_registryindex, i64(ref))
+	mut nargs := args.len
+	if self_ref != lua.lua_noref {
+		C.lua_rawgeti(rt.l, lua.lua_registryindex, i64(self_ref))
+		nargs++
+	}
 	for a in args {
 		C.lua_pushstring(rt.l, a.str)
 	}
-	status := C.lua_pcallk(rt.l, args.len, 1, 0, 0, unsafe { nil })
+	status := C.lua_pcallk(rt.l, nargs, 1, 0, 0, unsafe { nil })
 	if status != lua.lua_ok {
 		raw := C.lua_tolstring(rt.l, -1, unsafe { nil })
 		err := unsafe { cstring_to_vstring(raw) }
@@ -105,19 +111,19 @@ pub fn fire(c Command, shell []string, rt_ptr voidptr, args []string) {
 			p.close()
 		}
 		.lua_fn {
-			call_lua(rt_ptr, c.lua_ref, args) or {}
+			call_lua(rt_ptr, c.lua_ref, c.self_ref, args) or {}
 		}
 	}
 }
 
-pub fn exec(c Command, shell []string, rt_ptr voidptr) string {
+pub fn exec(c Command, shell []string, rt_ptr voidptr) ?string {
 	match c.kind {
 		.none {
-			return ''
+			return none
 		}
 		.shell {
 			if shell.len == 0 || c.str_val == '' {
-				return ''
+				return none
 			}
 			mut p := os.new_process(shell[0])
 			mut args := []string{}
@@ -134,10 +140,26 @@ pub fn exec(c Command, shell []string, rt_ptr voidptr) string {
 			if code == 0 {
 				return output.trim_space()
 			}
-			return ''
+			return none
 		}
 		.lua_fn {
-			return call_lua(rt_ptr, c.lua_ref, []) or { '' }
+			return call_lua(rt_ptr, c.lua_ref, c.self_ref, [])
 		}
 	}
+}
+
+pub fn bind_store(rt &LuaRuntime, store voidptr) {
+	if rt == unsafe { nil } {
+		return
+	}
+	mut r := unsafe { rt }
+	r.mtx.@lock()
+	defer {
+		r.mtx.unlock()
+	}
+	if r.closed || r.l == unsafe { nil } {
+		return
+	}
+	C.lua_pushlightuserdata(r.l, store)
+	C.lua_setfield(r.l, lua.lua_registryindex, c'vbar.store')
 }

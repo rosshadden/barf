@@ -49,6 +49,7 @@ pub fn C.luaL_openlibs(L &C.lua_State)
 // Stack manipulation
 pub fn C.lua_gettop(L &C.lua_State) int
 pub fn C.lua_settop(L &C.lua_State, idx int)
+pub fn C.lua_pushvalue(L &C.lua_State, idx int)
 
 // Type inspection
 pub fn C.lua_type(L &C.lua_State, idx int) int
@@ -98,6 +99,9 @@ pub fn C.luaL_requiref(L &C.lua_State, modname &char, openf voidptr, glb int)
 // References
 pub fn C.luaL_ref(L &C.lua_State, t int) int
 pub fn C.luaL_unref(L &C.lua_State, t int, ref int)
+
+// Metatable
+pub fn C.lua_setmetatable(L &C.lua_State, objindex int) int
 
 // Errors
 pub fn C.luaL_error(L &C.lua_State, fmt &char) int

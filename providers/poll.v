@@ -25,13 +25,14 @@ fn run_poll(name string, command cmd.Command, interval int, shell []string, stor
 		if gen.value != my_gen {
 			return
 		}
-		value := cmd.exec(command, shell, lua_rt)
-		update := &PollUpdate{
-			name:  name
-			value: value
-			store: store
+		if value := cmd.exec(command, shell, lua_rt) {
+			update := &PollUpdate{
+				name:  name
+				value: value
+				store: store
+			}
+			C.g_idle_add(voidptr(poll_apply), voidptr(update))
 		}
-		C.g_idle_add(voidptr(poll_apply), voidptr(update))
 		time_mod.sleep(time_mod.Duration(interval) * time_mod.second)
 	}
 }
