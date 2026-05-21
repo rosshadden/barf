@@ -65,6 +65,7 @@ pub fn C.lua_rawlen(L &C.lua_State, idx int) u64
 
 // Set functions
 pub fn C.lua_setfield(L &C.lua_State, idx int, k &char)
+pub fn C.lua_rawset(L &C.lua_State, idx int)
 
 // Table construction & iteration
 pub fn C.lua_createtable(L &C.lua_State, narr int, nrec int)

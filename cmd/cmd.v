@@ -220,6 +220,46 @@ pub fn clone_self_with_monitor(rt_ptr voidptr, orig_self_ref int, mon MonitorInf
 	return C.luaL_ref(rt.l, lua.lua_registryindex)
 }
 
+pub fn call_var_format(rt_ptr voidptr, self_ref int, format_ref int, value string) ?string {
+	if rt_ptr == unsafe { nil } || format_ref == lua.lua_noref {
+		return none
+	}
+	mut rt := unsafe { &LuaRuntime(rt_ptr) }
+	rt.mtx.@lock()
+	defer {
+		rt.mtx.unlock()
+	}
+	if rt.closed || rt.l == unsafe { nil } {
+		return none
+	}
+	l := rt.l
+	C.lua_rawgeti(l, lua.lua_registryindex, i64(format_ref))
+	if self_ref != lua.lua_noref {
+		C.lua_rawgeti(l, lua.lua_registryindex, i64(self_ref))
+		self_idx := C.lua_gettop(l)
+		C.lua_pushstring(l, value.str)
+		C.lua_setfield(l, self_idx, c'value')
+	} else {
+		C.lua_pushnil(l)
+	}
+	status := C.lua_pcallk(l, 1, 1, 0, 0, unsafe { nil })
+	if status != lua.lua_ok {
+		raw := C.lua_tolstring(l, -1, unsafe { nil })
+		err := unsafe { cstring_to_vstring(raw) }
+		lua.lua_pop(l, 1)
+		eprintln('vbar: format error: ${err}')
+		return none
+	}
+	if C.lua_type(l, -1) == lua.lua_tstring {
+		raw := C.lua_tolstring(l, -1, unsafe { nil })
+		result := unsafe { cstring_to_vstring(raw) }
+		lua.lua_pop(l, 1)
+		return result
+	}
+	lua.lua_pop(l, 1)
+	return none
+}
+
 pub fn bind_store(rt &LuaRuntime, store voidptr) {
 	if rt == unsafe { nil } {
 		return

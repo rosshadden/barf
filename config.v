@@ -11,6 +11,7 @@ struct WidgetDesc {
 	self_ref        int    = lua.lua_noref
 	active_color    string = '#89b4fa'
 	text            string
+	format_ref      int    = lua.lua_noref
 	on_click        cmd.Command
 	on_right_click  cmd.Command
 	on_middle_click cmd.Command
@@ -169,13 +170,48 @@ fn apply_metatable(l &C.lua_State, inst_idx int, registry_key &char) {
 	C.lua_setmetatable(l, inst_idx)
 }
 
+fn lua_var_format_method(l &C.lua_State) int {
+	if C.lua_type(l, 2) == lua.lua_tstring {
+		raw := C.lua_tolstring(l, 2, unsafe { nil })
+		C.lua_createtable(l, 0, 2)
+		tbl_idx := C.lua_gettop(l)
+		C.lua_pushstring(l, raw)
+		C.lua_setfield(l, tbl_idx, c'text')
+		C.lua_pushstring(l, c'label')
+		C.lua_setfield(l, tbl_idx, c'__vbar_type')
+		C.lua_getfield(l, lua.lua_registryindex, c'vbar.label.mt')
+		C.lua_setmetatable(l, tbl_idx)
+		return 1
+	}
+	return 0
+}
+
+fn lua_var_newindex(l &C.lua_State) int {
+	if C.lua_type(l, 2) == lua.lua_tstring {
+		raw := C.lua_tolstring(l, 2, unsafe { nil })
+		key := unsafe { cstring_to_vstring(raw) }
+		if key == 'format' {
+			C.lua_pushstring(l, c'_format')
+			C.lua_pushvalue(l, 3)
+			C.lua_rawset(l, 1)
+			return 0
+		}
+	}
+	C.lua_rawset(l, 1)
+	return 0
+}
+
 fn setup_var_metatable(l &C.lua_State) {
-	C.lua_createtable(l, 0, 2)
+	C.lua_createtable(l, 0, 4)
 	mt_idx := C.lua_gettop(l)
 	C.lua_pushvalue(l, mt_idx)
 	C.lua_setfield(l, mt_idx, c'__index')
 	C.lua_pushcclosure(l, voidptr(lua_var_set_fn), 0)
 	C.lua_setfield(l, mt_idx, c'set')
+	C.lua_pushcclosure(l, voidptr(lua_var_format_method), 0)
+	C.lua_setfield(l, mt_idx, c'format')
+	C.lua_pushcclosure(l, voidptr(lua_var_newindex), 0)
+	C.lua_setfield(l, mt_idx, c'__newindex')
 	C.lua_setfield(l, lua.lua_registryindex, c'vbar.var.mt')
 }
 
@@ -366,6 +402,25 @@ fn read_widget_from_table(l &C.lua_State, tbl_idx int) WidgetDesc {
 	on_middle_click := read_method_command(l, tbl_idx, c'middle_click', self_ref)
 
 	return match kind {
+		'var' {
+			name := read_string_field(l, tbl_idx, c'name', '')
+			t := C.lua_getfield(l, tbl_idx, c'_format')
+			format_ref := if t == lua.lua_tfunction {
+				C.luaL_ref(l, lua.lua_registryindex)
+			} else {
+				lua.lua_pop(l, 1)
+				lua.lua_noref
+			}
+			WidgetDesc{
+				kind:            'label'
+				self_ref:        self_ref
+				text:            '\x24{${name}}'
+				format_ref:      format_ref
+				on_click:        on_click
+				on_right_click:  on_right_click
+				on_middle_click: on_middle_click
+			}
+		}
 		'label' {
 			WidgetDesc{
 				kind:            'label'

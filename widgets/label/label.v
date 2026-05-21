@@ -2,14 +2,18 @@ module label
 
 import cmd
 import lib.gtk
+import lib.lua
 import vars
 
 struct LabelState {
-	gtk_label &C.GtkWidget
-	tmpl      vars.Template
-	store     &vars.VarStore
-	gen       &vars.Generation = unsafe { nil }
-	my_gen    int
+	gtk_label  &C.GtkWidget
+	tmpl       vars.Template
+	store      &vars.VarStore
+	gen        &vars.Generation = unsafe { nil }
+	my_gen     int
+	format_ref int              = lua.lua_noref
+	self_ref   int              = lua.lua_noref
+	lua_rt     voidptr          = unsafe { nil }
 }
 
 @[heap]
@@ -22,7 +26,12 @@ struct LabelClickState {
 }
 
 fn render(state &LabelState) {
-	text := state.tmpl.render(state.store)
+	raw := state.tmpl.render(state.store)
+	text := if state.format_ref != lua.lua_noref {
+		cmd.call_var_format(state.lua_rt, state.self_ref, state.format_ref, raw) or { raw }
+	} else {
+		raw
+	}
 	C.gtk_label_set_text(state.gtk_label, text.str)
 }
 
@@ -50,16 +59,19 @@ fn label_on_click(widget voidptr, event &C.GdkEventButton, data voidptr) int {
 	return 1
 }
 
-pub fn make_widget(template_str string, store &vars.VarStore, gen &vars.Generation, on_click cmd.Command, on_right_click cmd.Command, on_middle_click cmd.Command, shell []string, lua_rt voidptr) &C.GtkWidget {
+pub fn make_widget(template_str string, store &vars.VarStore, gen &vars.Generation, on_click cmd.Command, on_right_click cmd.Command, on_middle_click cmd.Command, shell []string, lua_rt voidptr, format_ref int, self_ref int) &C.GtkWidget {
 	lbl := C.gtk_label_new(c'')
 	C.gtk_widget_set_name(lbl, c'label')
 	tmpl := vars.parse_template(template_str)
 	state := &LabelState{
-		gtk_label: lbl
-		tmpl:      tmpl
-		store:     store
-		gen:       gen
-		my_gen:    gen.value
+		gtk_label:  lbl
+		tmpl:       tmpl
+		store:      store
+		gen:        gen
+		my_gen:     gen.value
+		format_ref: format_ref
+		self_ref:   self_ref
+		lua_rt:     lua_rt
 	}
 	for name in tmpl.var_names() {
 		unsafe {

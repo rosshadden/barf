@@ -61,7 +61,7 @@ fn make_widget(desc WidgetDesc, mon cmd.MonitorInfo, store &vars.VarStore, shell
 	return match desc.kind {
 		'label' {
 			label.make_widget(desc.text, store, gen, on_click, on_right_click, on_middle_click,
-				shell, lua_rt)
+				shell, lua_rt, desc.format_ref, new_self)
 		}
 		'workspaces' {
 			workspaces.make_widget(desc.active_color, mon.name, on_click, on_right_click,
