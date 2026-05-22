@@ -93,6 +93,7 @@ pub fn C.lua_pushnumber(L &C.lua_State, n f64)
 // Call/load
 pub fn C.lua_pcallk(L &C.lua_State, nargs int, nresults int, errfunc int, ctx i64, k voidptr) int
 pub fn C.luaL_loadfilex(L &C.lua_State, filename &char, mode voidptr) int
+pub fn C.luaL_loadstring(L &C.lua_State, s &char) int
 
 // Module registration
 pub fn C.luaL_requiref(L &C.lua_State, modname &char, openf voidptr, glb int)

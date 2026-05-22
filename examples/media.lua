@@ -10,22 +10,21 @@ vbar.setup({
 
 -- Use playerctl's own formatting to get a clean combined string.
 -- Outputs nothing when no player is available, so the label stays blank.
-vbar.poll("media", {
-	command = [[playerctl metadata --format "{{artist}} - {{title}}" 2>/dev/null || echo ""]],
-	interval = 2,
-})
+local media = vbar.var("media", { interval = 2 })
+function media:poll()
+	return vbar.exec([[playerctl metadata --format "{{artist}} - {{title}}" 2>/dev/null || echo ""]])
+end
 
-vbar.poll("volume", {
-	shell = { "nu", "-c" },
-	command = [[$"(ponymix get-volume)%(try { ponymix is-muted; ' [muted]' } catch { '' })"]],
-	-- command = [[echo "$(ponymix get-volume)%"]],
-	-- command = [[echo "$(ponymix get-volume)% $(ponymix is-muted && echo [muted] || echo)"]],
-	-- command = [[playerctl metadata --format '{{artist}} - {{title}}' 2>/dev/null || echo '']],
-	interval = 1,
-})
+local volume = vbar.var("volume", { interval = 1 })
+function volume:poll()
+	return vbar.exec([[echo "$(ponymix get-volume)%"]])
+end
 
 vbar.bar({
 	center = {
-		vbar.label("${media}"),
+		media,
+	},
+	right = {
+		volume:format("VOL {}"),
 	},
 })

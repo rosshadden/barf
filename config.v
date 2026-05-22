@@ -11,7 +11,8 @@ struct WidgetDesc {
 	self_ref        int    = lua.lua_noref
 	active_color    string = '#89b4fa'
 	text            string
-	format_ref      int    = lua.lua_noref
+	var_name        string
+	format_ref      int = lua.lua_noref
 	on_click        cmd.Command
 	on_right_click  cmd.Command
 	on_middle_click cmd.Command
@@ -41,11 +42,6 @@ struct PollDesc {
 	shell    []string
 }
 
-struct BuiltinDesc {
-	kind     string
-	interval int = 2
-}
-
 struct Config {
 	font_family string = 'monospace'
 	font_size   string = '12pt'
@@ -53,7 +49,6 @@ struct Config {
 	fg_color    string = '#cdd6f4'
 	bars        []BarDesc
 	polls       []PollDesc
-	builtins    []BuiltinDesc
 	shell       []string
 }
 
@@ -74,7 +69,6 @@ mut:
 	bg_color    string
 	fg_color    string
 	shell       []string
-	builtins    []BuiltinDesc
 	bar_refs    []int
 	poll_refs   []int
 }
@@ -171,19 +165,37 @@ fn apply_metatable(l &C.lua_State, inst_idx int, registry_key &char) {
 }
 
 fn lua_var_format_method(l &C.lua_State) int {
-	if C.lua_type(l, 2) == lua.lua_tstring {
-		raw := C.lua_tolstring(l, 2, unsafe { nil })
-		C.lua_createtable(l, 0, 2)
-		tbl_idx := C.lua_gettop(l)
-		C.lua_pushstring(l, raw)
-		C.lua_setfield(l, tbl_idx, c'text')
-		C.lua_pushstring(l, c'label')
-		C.lua_setfield(l, tbl_idx, c'__vbar_type')
-		C.lua_getfield(l, lua.lua_registryindex, c'vbar.label.mt')
-		C.lua_setmetatable(l, tbl_idx)
-		return 1
+	if C.lua_type(l, 2) != lua.lua_tstring {
+		return 0
 	}
-	return 0
+	raw := C.lua_tolstring(l, 2, unsafe { nil })
+
+	C.lua_createtable(l, 0, 4)
+	tbl_idx := C.lua_gettop(l)
+
+	C.lua_pushstring(l, raw)
+	C.lua_setfield(l, tbl_idx, c'text')
+
+	C.lua_getfield(l, 1, c'name')
+	if C.lua_type(l, -1) == lua.lua_tstring {
+		C.lua_setfield(l, tbl_idx, c'var')
+	} else {
+		lua.lua_pop(l, 1)
+	}
+
+	C.lua_getfield(l, 1, c'_format')
+	if C.lua_type(l, -1) == lua.lua_tfunction {
+		C.lua_setfield(l, tbl_idx, c'_format')
+	} else {
+		lua.lua_pop(l, 1)
+	}
+
+	C.lua_pushstring(l, c'label')
+	C.lua_setfield(l, tbl_idx, c'__vbar_type')
+
+	C.lua_getfield(l, lua.lua_registryindex, c'vbar.label.mt')
+	C.lua_setmetatable(l, tbl_idx)
+	return 1
 }
 
 fn lua_var_newindex(l &C.lua_State) int {
@@ -414,7 +426,7 @@ fn read_widget_from_table(l &C.lua_State, tbl_idx int) WidgetDesc {
 			WidgetDesc{
 				kind:            'label'
 				self_ref:        self_ref
-				text:            '\x24{${name}}'
+				var_name:        name
 				format_ref:      format_ref
 				on_click:        on_click
 				on_right_click:  on_right_click
@@ -422,10 +434,21 @@ fn read_widget_from_table(l &C.lua_State, tbl_idx int) WidgetDesc {
 			}
 		}
 		'label' {
+			text := read_string_field(l, tbl_idx, c'text', '')
+			var_name := read_string_field(l, tbl_idx, c'var', '')
+			t := C.lua_getfield(l, tbl_idx, c'_format')
+			format_ref := if t == lua.lua_tfunction {
+				C.luaL_ref(l, lua.lua_registryindex)
+			} else {
+				lua.lua_pop(l, 1)
+				lua.lua_noref
+			}
 			WidgetDesc{
 				kind:            'label'
 				self_ref:        self_ref
-				text:            read_string_field(l, tbl_idx, c'text', '')
+				text:            text
+				var_name:        var_name
+				format_ref:      format_ref
 				on_click:        on_click
 				on_right_click:  on_right_click
 				on_middle_click: on_middle_click
@@ -671,29 +694,20 @@ fn lua_setup_fn(l &C.lua_State) int {
 	if fg_color != '' {
 		accum.fg_color = fg_color
 	}
-	t := C.lua_getfield(l, 1, c'providers')
-	if t == lua.lua_ttable {
-		providers_idx := C.lua_gettop(l)
-		C.lua_pushnil(l)
-		for C.lua_next(l, providers_idx) != 0 {
-			if C.lua_type(l, -2) == lua.lua_tstring {
-				raw := C.lua_tolstring(l, -2, unsafe { nil })
-				kind := unsafe { cstring_to_vstring(raw) }
-				interval := if C.lua_type(l, -1) == lua.lua_ttable {
-					read_int_field(l, C.lua_gettop(l), c'interval', 2)
-				} else {
-					2
-				}
-				accum.builtins << BuiltinDesc{
-					kind:     kind
-					interval: interval
-				}
-			}
-			lua.lua_pop(l, 1)
-		}
-	}
-	lua.lua_pop(l, 1)
 	return 0
+}
+
+
+const string_mod_snippet = 'getmetatable("").__mod = function(a, b) if not b then return a elseif type(b) == "table" then return string.format(a, table.unpack(b)) else return string.format(a, b) end end'
+
+fn install_string_mod(l &C.lua_State) {
+	if C.luaL_loadstring(l, string_mod_snippet.str) != lua.lua_ok {
+		lua.lua_pop(l, 1)
+		return
+	}
+	if C.lua_pcallk(l, 0, 0, 0, 0, unsafe { nil }) != lua.lua_ok {
+		lua.lua_pop(l, 1)
+	}
 }
 
 // --- Module registration ---
@@ -753,6 +767,7 @@ fn load_config() (Config, &C.lua_State) {
 	}
 
 	C.luaL_openlibs(l)
+	install_string_mod(l)
 
 	mut accum := ConfigAccum{}
 	C.lua_pushlightuserdata(l, voidptr(&accum))
@@ -808,7 +823,6 @@ fn load_config() (Config, &C.lua_State) {
 		fg_color:    fg_color
 		bars:        bars
 		polls:       polls
-		builtins:    accum.builtins
 		shell:       accum.shell
 	}, l
 }
@@ -822,7 +836,7 @@ fn default_config() Config {
 				}]
 				center: [WidgetDesc{
 					kind: 'label'
-					text: '\x24{time}'
+					text: 'vbar'
 				}]
 			},
 		]

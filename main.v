@@ -60,8 +60,8 @@ fn make_widget(desc WidgetDesc, mon cmd.MonitorInfo, store &vars.VarStore, shell
 
 	return match desc.kind {
 		'label' {
-			label.make_widget(desc.text, store, gen, on_click, on_right_click, on_middle_click,
-				shell, lua_rt, desc.format_ref, new_self)
+			label.make_widget(desc.text, desc.var_name, store, gen, on_click, on_right_click,
+				on_middle_click, shell, lua_rt, desc.format_ref, new_self)
 		}
 		'workspaces' {
 			workspaces.make_widget(desc.active_color, mon.name, on_click, on_right_click,
@@ -79,16 +79,6 @@ fn setup(mut ad AppData) {
 	default_shell := if cfg.shell.len > 0 { cfg.shell } else { ['sh', '-c'] }
 
 	cmd.bind_store(ad.lua_rt, voidptr(ad.store))
-
-	providers.start_time(ad.store, ad.gen)
-
-	for b in cfg.builtins {
-		match b.kind {
-			'cpu' { providers.start_cpu(ad.store, b.interval, ad.gen) }
-			'ram' { providers.start_ram(ad.store, b.interval, ad.gen) }
-			else {}
-		}
-	}
 
 	for p in cfg.polls {
 		if p.value != '' {
