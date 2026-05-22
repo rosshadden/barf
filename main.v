@@ -83,7 +83,7 @@ fn setup(mut ad AppData) {
 
 	for gv in global_var_descs() {
 		providers.start_poll(gv.name, cmd.Command{ kind: .shell, str_val: gv.command },
-			gv.interval, default_shell, ad.store, ad.gen, voidptr(ad.lua_rt))
+			gv.interval, ['sh', '-c'], ad.store, ad.gen, voidptr(ad.lua_rt))
 	}
 
 	for p in cfg.polls {

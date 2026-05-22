@@ -771,7 +771,7 @@ fn global_var_descs() []GlobalVarDesc {
 		GlobalVarDesc{
 			name:     'vbar.date'
 			command:  'date +%Y-%m-%d'
-			interval: 60
+			interval: 3600
 		},
 		GlobalVarDesc{
 			name:     'vbar.battery'
