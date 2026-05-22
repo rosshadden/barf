@@ -146,31 +146,38 @@ fn watch(mut state WorkspaceState) {
 	runtime := os.getenv('XDG_RUNTIME_DIR')
 	sock_path := '${runtime}/hypr/${instance}/.socket2.sock'
 
-	mut conn := unix.connect_stream(sock_path) or {
-		eprintln('vbar: hyprland socket: ${err}')
-		return
-	}
-	conn.set_read_timeout(time.infinite)
-
-	mut buf := []u8{len: 4096}
-	mut partial := ''
 	for {
-		n := conn.read(mut buf) or { break }
-		if n == 0 {
-			break
+		if state.gen.value != state.my_gen {
+			return
 		}
-		partial += buf[..n].bytestr()
+		mut conn := unix.connect_stream(sock_path) or {
+			time.sleep(2 * time.second)
+			continue
+		}
+		conn.set_read_timeout(time.infinite)
+
+		mut buf := []u8{len: 4096}
+		mut partial := ''
 		for {
-			idx := partial.index_u8(`\n`)
-			if idx < 0 {
+			n := conn.read(mut buf) or { break }
+			if n == 0 {
 				break
 			}
-			line := partial[..idx]
-			partial = partial[idx + 1..]
-			if handle_event(line) {
-				C.g_idle_add(voidptr(idle_update), state)
+			partial += buf[..n].bytestr()
+			for {
+				idx := partial.index_u8(`\n`)
+				if idx < 0 {
+					break
+				}
+				line := partial[..idx]
+				partial = partial[idx + 1..]
+				if handle_event(line) {
+					C.g_idle_add(voidptr(idle_update), state)
+				}
 			}
 		}
+		conn.close() or {}
+		time.sleep(2 * time.second)
 	}
 }
 

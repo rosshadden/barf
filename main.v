@@ -11,12 +11,13 @@ import widgets.workspaces
 
 struct AppData {
 mut:
-	config Config
-	refs   []voidptr
-	app    &C.GtkApplication = unsafe { nil }
-	store  &vars.VarStore    = unsafe { nil }
-	gen    &vars.Generation  = unsafe { nil }
-	lua_rt &cmd.LuaRuntime   = unsafe { nil }
+	config          Config
+	refs            []voidptr
+	app             &C.GtkApplication = unsafe { nil }
+	store           &vars.VarStore    = unsafe { nil }
+	gen             &vars.Generation  = unsafe { nil }
+	lua_rt          &cmd.LuaRuntime   = unsafe { nil }
+	reload_timer_id u32
 }
 
 fn content_fn(container &C.GtkWidget, mon cmd.MonitorInfo, data voidptr) {
@@ -144,6 +145,7 @@ fn setup(mut ad AppData) {
 
 fn do_reload(data voidptr) int {
 	mut ad := unsafe { &AppData(data) }
+	ad.reload_timer_id = 0
 	ad.gen.value++
 
 	mut node := C.gtk_application_get_windows(ad.app)
@@ -179,7 +181,22 @@ fn do_reload(data voidptr) int {
 }
 
 fn on_monitor_changed(display voidptr, monitor voidptr, data voidptr) {
-	C.g_idle_add(voidptr(do_reload), data)
+	mut ad := unsafe { &AppData(data) }
+	// destroy windows immediately to avoid wayland error
+	mut node := C.gtk_application_get_windows(ad.app)
+	mut windows := []&C.GtkWidget{}
+	for node != unsafe { nil } {
+		windows << unsafe { &C.GtkWidget(node.data) }
+		node = node.next
+	}
+	for w in windows {
+		C.gtk_widget_destroy(w)
+	}
+	// debounce
+	if ad.reload_timer_id != 0 {
+		C.g_source_remove(ad.reload_timer_id)
+	}
+	ad.reload_timer_id = C.g_timeout_add(200, voidptr(do_reload), data)
 }
 
 fn on_activate(app &C.GtkApplication, data voidptr) {

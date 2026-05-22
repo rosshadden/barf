@@ -144,4 +144,5 @@ pub fn C.gtk_application_get_windows(app &C.GtkApplication) &C.GList
 
 // GLib timers and idle
 pub fn C.g_timeout_add(interval u32, func voidptr, data voidptr) u32
+pub fn C.g_source_remove(tag u32) int
 pub fn C.g_idle_add(func voidptr, data voidptr) u32
