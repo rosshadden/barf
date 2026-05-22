@@ -81,6 +81,11 @@ fn setup(mut ad AppData) {
 
 	cmd.bind_store(ad.lua_rt, voidptr(ad.store))
 
+	for gv in global_var_descs() {
+		providers.start_poll(gv.name, cmd.Command{ kind: .shell, str_val: gv.command },
+			gv.interval, default_shell, ad.store, ad.gen, voidptr(ad.lua_rt))
+	}
+
 	for p in cfg.polls {
 		if p.value != '' {
 			unsafe {

@@ -71,6 +71,7 @@ mut:
 	shell       []string
 	bar_refs    []int
 	poll_refs   []int
+	var_counter int
 }
 
 // --- Field reading helpers ---
@@ -214,7 +215,7 @@ fn lua_var_newindex(l &C.lua_State) int {
 }
 
 fn setup_var_metatable(l &C.lua_State) {
-	C.lua_createtable(l, 0, 4)
+	C.lua_createtable(l, 0, 5)
 	mt_idx := C.lua_gettop(l)
 	C.lua_pushvalue(l, mt_idx)
 	C.lua_setfield(l, mt_idx, c'__index')
@@ -222,6 +223,8 @@ fn setup_var_metatable(l &C.lua_State) {
 	C.lua_setfield(l, mt_idx, c'set')
 	C.lua_pushcclosure(l, voidptr(lua_var_format_method), 0)
 	C.lua_setfield(l, mt_idx, c'format')
+	C.lua_pushcclosure(l, voidptr(lua_var_poll_fn), 0)
+	C.lua_setfield(l, mt_idx, c'poll')
 	C.lua_pushcclosure(l, voidptr(lua_var_newindex), 0)
 	C.lua_setfield(l, mt_idx, c'__newindex')
 	C.lua_setfield(l, lua.lua_registryindex, c'vbar.var.mt')
@@ -367,22 +370,20 @@ fn lua_workspaces_fn(l &C.lua_State) int {
 }
 
 fn lua_var_fn(l &C.lua_State) int {
-	if C.lua_type(l, 1) != lua.lua_tstring {
-		C.luaL_error(l, c'vbar.var: expected (name, opts)')
-		return 0
-	}
+	mut accum := get_config_accum(l)
+	accum.var_counter++
+	id := 'var_${accum.var_counter}'
 
-	C.lua_createtable(l, 0, 6)
+	C.lua_createtable(l, 0, 4)
 	inst_idx := C.lua_gettop(l)
 
-	raw := C.lua_tolstring(l, 1, unsafe { nil })
-	C.lua_pushstring(l, raw)
+	C.lua_pushstring(l, id.str)
 	C.lua_setfield(l, inst_idx, c'name')
 
-	if C.lua_type(l, 2) == lua.lua_ttable {
-		for key in [c'poll', c'interval', c'shell', c'value'] {
-			copy_table_field(l, 2, inst_idx, key)
-		}
+	if C.lua_type(l, 1) == lua.lua_tstring {
+		raw := C.lua_tolstring(l, 1, unsafe { nil })
+		C.lua_pushstring(l, raw)
+		C.lua_setfield(l, inst_idx, c'value')
 	}
 
 	C.lua_pushstring(l, c'var')
@@ -392,10 +393,31 @@ fn lua_var_fn(l &C.lua_State) int {
 
 	C.lua_pushvalue(l, inst_idx)
 	ref := C.luaL_ref(l, lua.lua_registryindex)
-	mut accum := get_config_accum(l)
 	accum.poll_refs << ref
 
 	return 1
+}
+
+fn lua_var_poll_fn(l &C.lua_State) int {
+	if C.lua_type(l, 1) != lua.lua_ttable {
+		return 0
+	}
+	arg2 := C.lua_type(l, 2)
+	if arg2 == lua.lua_tstring {
+		raw := C.lua_tolstring(l, 2, unsafe { nil })
+		C.lua_pushstring(l, raw)
+		C.lua_setfield(l, 1, c'cmd_shell')
+	} else if arg2 == lua.lua_tfunction {
+		C.lua_pushvalue(l, 2)
+		C.lua_setfield(l, 1, c'cmd_fn')
+	} else {
+		return 0
+	}
+	if C.lua_type(l, 3) == lua.lua_ttable {
+		copy_table_field(l, 3, 1, c'interval')
+		copy_table_field(l, 3, 1, c'shell')
+	}
+	return 0
 }
 
 // --- Deferred reading (after script finishes) ---
@@ -526,14 +548,35 @@ fn read_var_from_ref(l &C.lua_State, ref int) PollDesc {
 	C.lua_rawgeti(l, lua.lua_registryindex, i64(ref))
 	tbl_idx := C.lua_gettop(l)
 
-	C.lua_pushvalue(l, tbl_idx)
-	self_ref := C.luaL_ref(l, lua.lua_registryindex)
-
 	name := read_string_field(l, tbl_idx, c'name', '')
 	value := read_string_field(l, tbl_idx, c'value', '')
-	command := read_method_command(l, tbl_idx, c'poll', self_ref)
 	interval := read_int_field(l, tbl_idx, c'interval', 1)
 	shell := read_string_array_field(l, tbl_idx, c'shell')
+
+	mut command := cmd.Command{}
+	t_fn := C.lua_getfield(l, tbl_idx, c'cmd_fn')
+	if t_fn == lua.lua_tfunction {
+		fn_ref := C.luaL_ref(l, lua.lua_registryindex)
+		command = cmd.Command{
+			kind:     .lua_fn
+			lua_ref:  fn_ref
+			self_ref: lua.lua_noref
+		}
+	} else {
+		lua.lua_pop(l, 1)
+		t_sh := C.lua_getfield(l, tbl_idx, c'cmd_shell')
+		if t_sh == lua.lua_tstring {
+			raw := C.lua_tolstring(l, -1, unsafe { nil })
+			s := unsafe { cstring_to_vstring(raw) }
+			lua.lua_pop(l, 1)
+			command = cmd.Command{
+				kind:    .shell
+				str_val: s
+			}
+		} else {
+			lua.lua_pop(l, 1)
+		}
+	}
 
 	lua.lua_pop(l, 1)
 
@@ -710,10 +753,48 @@ fn install_string_mod(l &C.lua_State) {
 	}
 }
 
+// --- Global vars ---
+
+struct GlobalVarDesc {
+	name     string
+	command  string
+	interval int
+}
+
+fn global_var_descs() []GlobalVarDesc {
+	return [
+		GlobalVarDesc{
+			name:     'vbar.time'
+			command:  'date +%H:%M:%S'
+			interval: 1
+		},
+		GlobalVarDesc{
+			name:     'vbar.date'
+			command:  'date +%Y-%m-%d'
+			interval: 60
+		},
+		GlobalVarDesc{
+			name:     'vbar.battery'
+			command:  'cat /sys/class/power_supply/BAT0/capacity 2>/dev/null || echo N/A'
+			interval: 10
+		},
+		GlobalVarDesc{
+			name:     'vbar.cpu'
+			command:  'grep "cpu " /proc/stat | awk \'{u=$2+$4;t=$2+$3+$4+$5;print int(u/t*100)"%"}\''
+			interval: 2
+		},
+		GlobalVarDesc{
+			name:     'vbar.mem'
+			command:  'free -m | awk \'/Mem:/{print int($3/$2*100)"%"}\''
+			interval: 2
+		},
+	]
+}
+
 // --- Module registration ---
 
 fn open_vbar_module(l &C.lua_State) int {
-	C.lua_createtable(l, 0, 7)
+	C.lua_createtable(l, 0, 8)
 	mod_idx := C.lua_gettop(l)
 
 	setup_metatable(l, c'vbar.bar.mt')
@@ -741,6 +822,22 @@ fn open_vbar_module(l &C.lua_State) int {
 
 	C.lua_pushcclosure(l, voidptr(lua_debug_fn), 0)
 	C.lua_setfield(l, mod_idx, c'debug')
+
+	descs := global_var_descs()
+	C.lua_createtable(l, 0, descs.len)
+	vars_tbl_idx := C.lua_gettop(l)
+	for gv in descs {
+		C.lua_createtable(l, 0, 3)
+		v_idx := C.lua_gettop(l)
+		C.lua_pushstring(l, gv.name.str)
+		C.lua_setfield(l, v_idx, c'name')
+		C.lua_pushstring(l, c'var')
+		C.lua_setfield(l, v_idx, c'__vbar_type')
+		apply_metatable(l, v_idx, c'vbar.var.mt')
+		lua_key := gv.name.all_after('vbar.')
+		C.lua_setfield(l, vars_tbl_idx, lua_key.str)
+	}
+	C.lua_setfield(l, mod_idx, c'vars')
 
 	return 1
 }
