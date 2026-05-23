@@ -35,11 +35,12 @@ struct BarDesc {
 }
 
 struct PollDesc {
-	name     string
-	value    string
-	command  cmd.Command
-	interval int = 1
-	shell    []string
+	name          string
+	value         string
+	value_is_json bool
+	command       cmd.Command
+	interval      int = 1
+	shell         []string
 }
 
 struct Config {
@@ -231,15 +232,20 @@ fn setup_var_metatable(l &C.lua_State) {
 }
 
 struct VarSetUpdate {
-	name  string
-	value string
-	store voidptr
+	name    string
+	value   string
+	is_json bool
+	store   voidptr
 }
 
 fn var_set_apply(data voidptr) int {
 	update := unsafe { &VarSetUpdate(data) }
 	mut store := unsafe { &vars.VarStore(update.store) }
-	store.set(update.name, update.value)
+	if update.is_json {
+		store.set_json(update.name, update.value)
+	} else {
+		store.set(update.name, update.value)
+	}
 	return 0
 }
 
@@ -260,6 +266,110 @@ fn lua_value_to_string(l &C.lua_State, idx int) string {
 	return ''
 }
 
+fn json_quote_str(s string) string {
+	hex_chars := '0123456789abcdef'
+	mut out := '"'
+	for i := 0; i < s.len; i++ {
+		c := s[i]
+		if c == `"` {
+			out += '\\"'
+		} else if c == `\\` {
+			out += '\\\\'
+		} else if c == `\n` {
+			out += '\\n'
+		} else if c == `\r` {
+			out += '\\r'
+		} else if c == `\t` {
+			out += '\\t'
+		} else if c < 0x20 {
+			out += '\\u00'
+			out += hex_chars[(c >> 4) & 0xF].ascii_str()
+			out += hex_chars[c & 0xF].ascii_str()
+		} else {
+			out += c.ascii_str()
+		}
+	}
+	out += '"'
+	return out
+}
+
+fn lua_table_is_array(l &C.lua_State, abs_idx int) bool {
+	n := int(C.lua_rawlen(l, abs_idx))
+	if n == 0 {
+		return false
+	}
+	mut count := 0
+	C.lua_pushnil(l)
+	for C.lua_next(l, abs_idx) != 0 {
+		count++
+		if C.lua_type(l, -2) != lua.lua_tnumber {
+			lua.lua_pop(l, 2)
+			return false
+		}
+		lua.lua_pop(l, 1)
+	}
+	return count == n
+}
+
+fn lua_json_key(l &C.lua_State, idx int) string {
+	abs := if idx > 0 { idx } else { C.lua_gettop(l) + idx + 1 }
+	t := C.lua_type(l, abs)
+	if t == lua.lua_tstring {
+		raw := C.lua_tolstring(l, abs, unsafe { nil })
+		return json_quote_str(unsafe { cstring_to_vstring(raw) })
+	}
+	if t == lua.lua_tnumber {
+		i := C.lua_tointegerx(l, abs, unsafe { nil })
+		return '"${i}"'
+	}
+	return '""'
+}
+
+fn lua_value_to_json(l &C.lua_State, idx int, depth int) string {
+	if depth > 16 {
+		return 'null'
+	}
+	abs := if idx > 0 { idx } else { C.lua_gettop(l) + idx + 1 }
+	t := C.lua_type(l, abs)
+	if t == lua.lua_tnil {
+		return 'null'
+	}
+	if t == lua.lua_tboolean {
+		return if C.lua_toboolean(l, abs) != 0 { 'true' } else { 'false' }
+	}
+	if t == lua.lua_tnumber {
+		i := C.lua_tointegerx(l, abs, unsafe { nil })
+		n := C.lua_tonumberx(l, abs, unsafe { nil })
+		return if f64(i) == n { '${i}' } else { '${n}' }
+	}
+	if t == lua.lua_tstring {
+		raw := C.lua_tolstring(l, abs, unsafe { nil })
+		return json_quote_str(unsafe { cstring_to_vstring(raw) })
+	}
+	if t == lua.lua_ttable {
+		if lua_table_is_array(l, abs) {
+			n := int(C.lua_rawlen(l, abs))
+			mut parts := []string{}
+			for i := 1; i <= n; i++ {
+				C.lua_rawgeti(l, abs, i64(i))
+				parts << lua_value_to_json(l, -1, depth + 1)
+				lua.lua_pop(l, 1)
+			}
+			return '[' + parts.join(',') + ']'
+		}
+		mut parts := []string{}
+		C.lua_pushnil(l)
+		for C.lua_next(l, abs) != 0 {
+			key := lua_json_key(l, -2)
+			val := lua_value_to_json(l, -1, depth + 1)
+			parts << '${key}:${val}'
+			lua.lua_pop(l, 1)
+		}
+		return '{' + parts.join(',') + '}'
+	}
+	return 'null'
+}
+
 fn lua_var_set_fn(l &C.lua_State) int {
 	if C.lua_type(l, 1) != lua.lua_ttable {
 		return 0
@@ -274,7 +384,14 @@ fn lua_var_set_fn(l &C.lua_State) int {
 	name := unsafe { cstring_to_vstring(raw_name) }
 	lua.lua_pop(l, 1)
 
-	value := lua_value_to_string(l, 2)
+	val_type := C.lua_type(l, 2)
+	is_json := val_type == lua.lua_ttable || val_type == lua.lua_tnumber
+		|| val_type == lua.lua_tboolean
+	value := if is_json {
+		lua_value_to_json(l, 2, 0)
+	} else {
+		lua_value_to_string(l, 2)
+	}
 
 	C.lua_getfield(l, lua.lua_registryindex, c'vbar.store')
 	store_ptr := C.lua_touserdata(l, -1)
@@ -284,9 +401,10 @@ fn lua_var_set_fn(l &C.lua_State) int {
 	}
 
 	update := &VarSetUpdate{
-		name:  name
-		value: value
-		store: store_ptr
+		name:    name
+		value:   value
+		is_json: is_json
+		store:   store_ptr
 	}
 	C.g_idle_add(voidptr(var_set_apply), voidptr(update))
 
@@ -380,10 +498,18 @@ fn lua_var_fn(l &C.lua_State) int {
 	if C.lua_type(l, 1) == lua.lua_tstring {
 		raw := C.lua_tolstring(l, 1, unsafe { nil })
 		id = unsafe { cstring_to_vstring(raw) }
-		if C.lua_type(l, 2) == lua.lua_tstring {
+		val_type := C.lua_type(l, 2)
+		if val_type == lua.lua_tstring {
 			raw2 := C.lua_tolstring(l, 2, unsafe { nil })
 			C.lua_pushstring(l, raw2)
 			C.lua_setfield(l, inst_idx, c'value')
+		} else if val_type == lua.lua_ttable || val_type == lua.lua_tnumber
+			|| val_type == lua.lua_tboolean {
+			json_val := lua_value_to_json(l, 2, 0)
+			C.lua_pushstring(l, json_val.str)
+			C.lua_setfield(l, inst_idx, c'value')
+			C.lua_pushinteger(l, 1)
+			C.lua_setfield(l, inst_idx, c'value_is_json')
 		}
 	}
 
@@ -554,6 +680,7 @@ fn read_var_from_ref(l &C.lua_State, ref int) PollDesc {
 
 	name := read_string_field(l, tbl_idx, c'name', '')
 	value := read_string_field(l, tbl_idx, c'value', '')
+	value_is_json := read_int_field(l, tbl_idx, c'value_is_json', 0) != 0
 	interval := read_int_field(l, tbl_idx, c'interval', 1)
 	shell := read_string_array_field(l, tbl_idx, c'shell')
 
@@ -585,11 +712,12 @@ fn read_var_from_ref(l &C.lua_State, ref int) PollDesc {
 	lua.lua_pop(l, 1)
 
 	return PollDesc{
-		name:     name
-		value:    value
-		command:  command
-		interval: interval
-		shell:    shell
+		name:          name
+		value:         value
+		value_is_json: value_is_json
+		command:       command
+		interval:      interval
+		shell:         shell
 	}
 }
 

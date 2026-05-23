@@ -92,7 +92,11 @@ fn setup(mut ad AppData) {
 		if p.value != '' {
 			unsafe {
 				mut store := ad.store
-				store.set(p.name, p.value)
+				if p.value_is_json {
+					store.set_json(p.name, p.value)
+				} else {
+					store.set(p.name, p.value)
+				}
 			}
 		}
 		if p.command.is_set() {
