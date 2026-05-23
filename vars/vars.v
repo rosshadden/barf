@@ -55,3 +55,15 @@ pub fn (mut s VarStore) subscribe(name string, cb VarChangeFn, data voidptr) {
 		}
 	}
 }
+
+pub fn (mut s VarStore) to_json() string {
+	mut out := '{'
+	for k, v in s.values {
+		out += '"${k}":"${v}",'
+	}
+	if out.len > 1 {
+		out = out[..out.len - 1]
+	}
+	out += '}'
+	return out
+}

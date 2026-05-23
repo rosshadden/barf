@@ -372,19 +372,23 @@ fn lua_workspaces_fn(l &C.lua_State) int {
 fn lua_var_fn(l &C.lua_State) int {
 	mut accum := get_config_accum(l)
 	accum.var_counter++
-	id := 'var_${accum.var_counter}'
 
 	C.lua_createtable(l, 0, 4)
 	inst_idx := C.lua_gettop(l)
 
-	C.lua_pushstring(l, id.str)
-	C.lua_setfield(l, inst_idx, c'name')
-
+	mut id := 'var_${accum.var_counter}'
 	if C.lua_type(l, 1) == lua.lua_tstring {
 		raw := C.lua_tolstring(l, 1, unsafe { nil })
-		C.lua_pushstring(l, raw)
-		C.lua_setfield(l, inst_idx, c'value')
+		id = unsafe { cstring_to_vstring(raw) }
+		if C.lua_type(l, 2) == lua.lua_tstring {
+			raw2 := C.lua_tolstring(l, 2, unsafe { nil })
+			C.lua_pushstring(l, raw2)
+			C.lua_setfield(l, inst_idx, c'value')
+		}
 	}
+
+	C.lua_pushstring(l, id.str)
+	C.lua_setfield(l, inst_idx, c'name')
 
 	C.lua_pushstring(l, c'var')
 	C.lua_setfield(l, inst_idx, c'__vbar_type')

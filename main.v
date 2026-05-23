@@ -1,8 +1,10 @@
 module main
 
 import cmd
+import ipc
 import lib.gtk
 import lib.inotify
+import os
 import providers
 import vars
 import widgets.bar
@@ -148,6 +150,30 @@ fn setup(mut ad AppData) {
 	_ = content_refs
 }
 
+struct IpcSetRequest {
+	name  string
+	value string
+	store voidptr
+}
+
+fn ipc_set_apply(data voidptr) int {
+	req := unsafe { &IpcSetRequest(data) }
+	unsafe {
+		mut store := &vars.VarStore(req.store)
+		store.set(req.name, req.value)
+	}
+	return 0
+}
+
+fn ipc_set_var(name string, value string, data voidptr) {
+	req := &IpcSetRequest{
+		name:  name
+		value: value
+		store: data
+	}
+	C.g_idle_add(voidptr(ipc_set_apply), voidptr(req))
+}
+
 fn do_reload(data voidptr) int {
 	mut ad := unsafe { &AppData(data) }
 	ad.reload_timer_id = 0
@@ -254,6 +280,26 @@ fn watch_config(dir string, data voidptr) {
 }
 
 fn main() {
+	if os.args.len < 2 {
+		eprintln('usage: vbar daemon | update <name>=<value> | get <name> | state')
+		exit(1)
+	}
+	match os.args[1] {
+		'daemon' {}
+		'update', 'get', 'state' {
+			ipc.run_client(os.args[1..]) or {
+				eprintln('vbar: ${err}')
+				exit(1)
+			}
+			return
+		}
+		else {
+			eprintln('vbar: unknown command: ${os.args[1]}')
+			eprintln('usage: vbar daemon | update <name>=<value> | get <name> | state')
+			exit(1)
+		}
+	}
+
 	config, lua_state := load_config()
 	mut lua_rt := unsafe { &cmd.LuaRuntime(nil) }
 	if lua_state != unsafe { nil } {
@@ -270,6 +316,7 @@ fn main() {
 	}
 
 	spawn watch_config(config_dir(), voidptr(ad))
+	spawn ipc.serve(store, ipc_set_var, voidptr(store))
 
 	app := C.gtk_application_new(c'io.vbar', 0)
 	C.g_signal_connect_data(app, c'activate', voidptr(on_activate), voidptr(ad), unsafe { nil }, 0)
