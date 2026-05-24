@@ -217,6 +217,8 @@ fn do_reload(data voidptr) int {
 
 fn on_monitor_changed(display voidptr, monitor voidptr, data voidptr) {
 	mut ad := unsafe { &AppData(data) }
+	// bump gen before destroying so idle_update callbacks see stale gen and bail
+	ad.gen.value++
 	// destroy windows immediately to avoid wayland error
 	mut node := C.gtk_application_get_windows(ad.app)
 	mut windows := []&C.GtkWidget{}
