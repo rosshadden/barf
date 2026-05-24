@@ -810,6 +810,9 @@ fn read_var_from_ref(l &C.lua_State, ref int) PollDesc {
 	shell := read_string_array_field(l, tbl_idx, c'shell')
 	listen_shell := read_string_field(l, tbl_idx, c'listen_shell', '')
 
+	C.lua_pushvalue(l, tbl_idx)
+	self_ref := C.luaL_ref(l, lua.lua_registryindex)
+
 	mut command := cmd.Command{}
 	t_fn := C.lua_getfield(l, tbl_idx, c'cmd_fn')
 	if t_fn == lua.lua_tfunction {
@@ -817,7 +820,7 @@ fn read_var_from_ref(l &C.lua_State, ref int) PollDesc {
 		command = cmd.Command{
 			kind:     .lua_fn
 			lua_ref:  fn_ref
-			self_ref: lua.lua_noref
+			self_ref: self_ref
 		}
 	} else {
 		lua.lua_pop(l, 1)
@@ -842,7 +845,7 @@ fn read_var_from_ref(l &C.lua_State, ref int) PollDesc {
 		listen_override = cmd.Command{
 			kind:     .lua_fn
 			lua_ref:  fn_ref
-			self_ref: lua.lua_noref
+			self_ref: self_ref
 		}
 	} else {
 		lua.lua_pop(l, 1)
