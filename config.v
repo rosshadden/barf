@@ -124,7 +124,8 @@ fn read_string_array_field(l &C.lua_State, tbl_idx int, key &char) []string {
 }
 
 fn read_method_command(l &C.lua_State, tbl_idx int, key &char, self_ref int) cmd.Command {
-	t := C.lua_getfield(l, tbl_idx, key)
+	C.lua_pushstring(l, key)
+	t := C.lua_rawget(l, tbl_idx)
 	if t == lua.lua_tstring {
 		raw := C.lua_tolstring(l, -1, unsafe { nil })
 		s := unsafe { cstring_to_vstring(raw) }
@@ -155,12 +156,96 @@ fn get_config_accum(l &C.lua_State) &ConfigAccum {
 
 // --- Metatable setup ---
 
-fn setup_metatable(l &C.lua_State, registry_key &char) {
-	C.lua_createtable(l, 0, 1)
+fn lua_click_method(l &C.lua_State) int {
+	if C.lua_type(l, 1) != lua.lua_ttable {
+		return 0
+	}
+	t := C.lua_type(l, 2)
+	if t == lua.lua_tstring || t == lua.lua_tfunction {
+		C.lua_pushvalue(l, 2)
+		C.lua_setfield(l, 1, c'click')
+	}
+	C.lua_pushvalue(l, 1)
+	return 1
+}
+
+fn lua_right_click_method(l &C.lua_State) int {
+	if C.lua_type(l, 1) != lua.lua_ttable {
+		return 0
+	}
+	t := C.lua_type(l, 2)
+	if t == lua.lua_tstring || t == lua.lua_tfunction {
+		C.lua_pushvalue(l, 2)
+		C.lua_setfield(l, 1, c'right_click')
+	}
+	C.lua_pushvalue(l, 1)
+	return 1
+}
+
+fn lua_middle_click_method(l &C.lua_State) int {
+	if C.lua_type(l, 1) != lua.lua_ttable {
+		return 0
+	}
+	t := C.lua_type(l, 2)
+	if t == lua.lua_tstring || t == lua.lua_tfunction {
+		C.lua_pushvalue(l, 2)
+		C.lua_setfield(l, 1, c'middle_click')
+	}
+	C.lua_pushvalue(l, 1)
+	return 1
+}
+
+fn lua_scroll_method(l &C.lua_State) int {
+	if C.lua_type(l, 1) != lua.lua_ttable {
+		return 0
+	}
+	t := C.lua_type(l, 2)
+	if t == lua.lua_tstring || t == lua.lua_tfunction {
+		C.lua_pushvalue(l, 2)
+		C.lua_setfield(l, 1, c'scroll')
+	}
+	C.lua_pushvalue(l, 1)
+	return 1
+}
+
+fn setup_label_metatable(l &C.lua_State) {
+	C.lua_createtable(l, 0, 4)
 	mt_idx := C.lua_gettop(l)
 	C.lua_pushvalue(l, mt_idx)
 	C.lua_setfield(l, mt_idx, c'__index')
-	C.lua_setfield(l, lua.lua_registryindex, registry_key)
+	C.lua_pushcclosure(l, voidptr(lua_click_method), 0)
+	C.lua_setfield(l, mt_idx, c'click')
+	C.lua_pushcclosure(l, voidptr(lua_right_click_method), 0)
+	C.lua_setfield(l, mt_idx, c'right_click')
+	C.lua_pushcclosure(l, voidptr(lua_middle_click_method), 0)
+	C.lua_setfield(l, mt_idx, c'middle_click')
+	C.lua_setfield(l, lua.lua_registryindex, c'vbar.label.mt')
+}
+
+fn setup_workspaces_metatable(l &C.lua_State) {
+	C.lua_createtable(l, 0, 4)
+	mt_idx := C.lua_gettop(l)
+	C.lua_pushvalue(l, mt_idx)
+	C.lua_setfield(l, mt_idx, c'__index')
+	C.lua_pushcclosure(l, voidptr(lua_click_method), 0)
+	C.lua_setfield(l, mt_idx, c'click')
+	C.lua_pushcclosure(l, voidptr(lua_right_click_method), 0)
+	C.lua_setfield(l, mt_idx, c'right_click')
+	C.lua_pushcclosure(l, voidptr(lua_middle_click_method), 0)
+	C.lua_setfield(l, mt_idx, c'middle_click')
+	C.lua_setfield(l, lua.lua_registryindex, c'vbar.workspaces.mt')
+}
+
+fn setup_bar_metatable(l &C.lua_State) {
+	C.lua_createtable(l, 0, 3)
+	mt_idx := C.lua_gettop(l)
+	C.lua_pushvalue(l, mt_idx)
+	C.lua_setfield(l, mt_idx, c'__index')
+	C.lua_pushcclosure(l, voidptr(lua_click_method), 0)
+	C.lua_setfield(l, mt_idx, c'click')
+	C.lua_pushcclosure(l, voidptr(lua_scroll_method), 0)
+	C.lua_setfield(l, mt_idx, c'scroll')
+	C.lua_setfield(l, lua.lua_registryindex, c'vbar.bar.mt')
 }
 
 fn apply_metatable(l &C.lua_State, inst_idx int, registry_key &char) {
@@ -997,9 +1082,9 @@ fn open_vbar_module(l &C.lua_State) int {
 	C.lua_createtable(l, 0, 8)
 	mod_idx := C.lua_gettop(l)
 
-	setup_metatable(l, c'vbar.bar.mt')
-	setup_metatable(l, c'vbar.label.mt')
-	setup_metatable(l, c'vbar.workspaces.mt')
+	setup_bar_metatable(l)
+	setup_label_metatable(l)
+	setup_workspaces_metatable(l)
 	setup_var_metatable(l)
 
 	C.lua_pushcclosure(l, voidptr(lua_bar_fn), 0)

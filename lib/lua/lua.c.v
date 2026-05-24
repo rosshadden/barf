@@ -60,6 +60,7 @@ pub fn C.lua_pushcclosure(L &C.lua_State, fn_ voidptr, n int)
 
 // Get functions
 pub fn C.lua_getfield(L &C.lua_State, idx int, k &char) int
+pub fn C.lua_rawget(L &C.lua_State, idx int) int
 pub fn C.lua_rawgeti(L &C.lua_State, idx int, n i64) int
 pub fn C.lua_rawlen(L &C.lua_State, idx int) u64
 
