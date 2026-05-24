@@ -8,15 +8,20 @@ vbar.setup({
 	shell = { "bash", "-c" },
 })
 
--- Use playerctl's own formatting to get a clean combined string.
--- Outputs nothing when no player is available, so the label stays blank.
+-- :listen runs a long-lived process and updates the var on each line of output.
+-- playerctl --follow emits a line on every track change, so updates are instant.
+-- :poll every 5s corrects any missed events (e.g. player started while vbar was loading).
+-- Both can be used together when they produce the same output format.
 local media = vbar.var("media")
-media:poll([[playerctl metadata --format "{{artist}} - {{title}}" 2>/dev/null || echo ""]], { interval = 2 })
+	:value("")
+	:listen([[playerctl --follow metadata --format "{{artist}} - {{title}}" 2>/dev/null]])
+	:poll([[playerctl metadata --format "{{artist}} - {{title}}" 2>/dev/null || echo ""]], { interval = 5 })
 
-local volume = vbar.var("volume", "0%")
-volume:poll(function()
-	return vbar.exec([[echo "$(ponymix get-volume)%"]])
-end, { interval = 1 })
+local volume = vbar.var("volume")
+	:value("0%")
+	:poll(function()
+		return vbar.exec([[echo "$(ponymix get-volume)%"]])
+	end, { interval = 1 })
 
 vbar.bar({
 	left = {

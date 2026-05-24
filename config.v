@@ -41,6 +41,8 @@ struct PollDesc {
 	command       cmd.Command
 	interval      int = 1
 	shell         []string
+	listen_shell    string
+	listen_override cmd.Command
 }
 
 struct Config {
@@ -216,7 +218,7 @@ fn lua_var_newindex(l &C.lua_State) int {
 }
 
 fn setup_var_metatable(l &C.lua_State) {
-	C.lua_createtable(l, 0, 5)
+	C.lua_createtable(l, 0, 7)
 	mt_idx := C.lua_gettop(l)
 	C.lua_pushvalue(l, mt_idx)
 	C.lua_setfield(l, mt_idx, c'__index')
@@ -226,6 +228,10 @@ fn setup_var_metatable(l &C.lua_State) {
 	C.lua_setfield(l, mt_idx, c'format')
 	C.lua_pushcclosure(l, voidptr(lua_var_poll_fn), 0)
 	C.lua_setfield(l, mt_idx, c'poll')
+	C.lua_pushcclosure(l, voidptr(lua_var_listen_fn), 0)
+	C.lua_setfield(l, mt_idx, c'listen')
+	C.lua_pushcclosure(l, voidptr(lua_var_value_fn), 0)
+	C.lua_setfield(l, mt_idx, c'value')
 	C.lua_pushcclosure(l, voidptr(lua_var_newindex), 0)
 	C.lua_setfield(l, mt_idx, c'__newindex')
 	C.lua_setfield(l, lua.lua_registryindex, c'vbar.var.mt')
@@ -498,19 +504,6 @@ fn lua_var_fn(l &C.lua_State) int {
 	if C.lua_type(l, 1) == lua.lua_tstring {
 		raw := C.lua_tolstring(l, 1, unsafe { nil })
 		id = unsafe { cstring_to_vstring(raw) }
-		val_type := C.lua_type(l, 2)
-		if val_type == lua.lua_tstring {
-			raw2 := C.lua_tolstring(l, 2, unsafe { nil })
-			C.lua_pushstring(l, raw2)
-			C.lua_setfield(l, inst_idx, c'value')
-		} else if val_type == lua.lua_ttable || val_type == lua.lua_tnumber
-			|| val_type == lua.lua_tboolean {
-			json_val := lua_value_to_json(l, 2, 0)
-			C.lua_pushstring(l, json_val.str)
-			C.lua_setfield(l, inst_idx, c'value')
-			C.lua_pushinteger(l, 1)
-			C.lua_setfield(l, inst_idx, c'value_is_json')
-		}
 	}
 
 	C.lua_pushstring(l, id.str)
@@ -525,6 +518,29 @@ fn lua_var_fn(l &C.lua_State) int {
 	ref := C.luaL_ref(l, lua.lua_registryindex)
 	accum.poll_refs << ref
 
+	return 1
+}
+
+fn lua_var_value_fn(l &C.lua_State) int {
+	if C.lua_type(l, 1) != lua.lua_ttable {
+		return 0
+	}
+	val_type := C.lua_type(l, 2)
+	if val_type == lua.lua_tstring {
+		raw := C.lua_tolstring(l, 2, unsafe { nil })
+		C.lua_pushstring(l, raw)
+		C.lua_setfield(l, 1, c'value')
+	} else if val_type == lua.lua_ttable || val_type == lua.lua_tnumber
+		|| val_type == lua.lua_tboolean {
+		json_val := lua_value_to_json(l, 2, 0)
+		C.lua_pushstring(l, json_val.str)
+		C.lua_setfield(l, 1, c'value')
+		C.lua_pushinteger(l, 1)
+		C.lua_setfield(l, 1, c'value_is_json')
+	} else {
+		return 0
+	}
+	C.lua_pushvalue(l, 1)
 	return 1
 }
 
@@ -547,7 +563,31 @@ fn lua_var_poll_fn(l &C.lua_State) int {
 		copy_table_field(l, 3, 1, c'interval')
 		copy_table_field(l, 3, 1, c'shell')
 	}
-	return 0
+	C.lua_pushvalue(l, 1)
+	return 1
+}
+
+fn lua_var_listen_fn(l &C.lua_State) int {
+	if C.lua_type(l, 1) != lua.lua_ttable {
+		return 0
+	}
+	if C.lua_type(l, 2) != lua.lua_tstring {
+		return 0
+	}
+	raw := C.lua_tolstring(l, 2, unsafe { nil })
+	C.lua_pushstring(l, raw)
+	C.lua_setfield(l, 1, c'listen_shell')
+	arg3 := C.lua_type(l, 3)
+	if arg3 == lua.lua_tstring {
+		raw3 := C.lua_tolstring(l, 3, unsafe { nil })
+		C.lua_pushstring(l, raw3)
+		C.lua_setfield(l, 1, c'listen_override_shell')
+	} else if arg3 == lua.lua_tfunction {
+		C.lua_pushvalue(l, 3)
+		C.lua_setfield(l, 1, c'listen_override_fn')
+	}
+	C.lua_pushvalue(l, 1)
+	return 1
 }
 
 // --- Deferred reading (after script finishes) ---
@@ -683,6 +723,7 @@ fn read_var_from_ref(l &C.lua_State, ref int) PollDesc {
 	value_is_json := read_int_field(l, tbl_idx, c'value_is_json', 0) != 0
 	interval := read_int_field(l, tbl_idx, c'interval', 1)
 	shell := read_string_array_field(l, tbl_idx, c'shell')
+	listen_shell := read_string_field(l, tbl_idx, c'listen_shell', '')
 
 	mut command := cmd.Command{}
 	t_fn := C.lua_getfield(l, tbl_idx, c'cmd_fn')
@@ -709,15 +750,42 @@ fn read_var_from_ref(l &C.lua_State, ref int) PollDesc {
 		}
 	}
 
+	mut listen_override := cmd.Command{}
+	t_ov_fn := C.lua_getfield(l, tbl_idx, c'listen_override_fn')
+	if t_ov_fn == lua.lua_tfunction {
+		fn_ref := C.luaL_ref(l, lua.lua_registryindex)
+		listen_override = cmd.Command{
+			kind:     .lua_fn
+			lua_ref:  fn_ref
+			self_ref: lua.lua_noref
+		}
+	} else {
+		lua.lua_pop(l, 1)
+		t_ov_sh := C.lua_getfield(l, tbl_idx, c'listen_override_shell')
+		if t_ov_sh == lua.lua_tstring {
+			raw := C.lua_tolstring(l, -1, unsafe { nil })
+			s := unsafe { cstring_to_vstring(raw) }
+			lua.lua_pop(l, 1)
+			listen_override = cmd.Command{
+				kind:    .shell
+				str_val: s
+			}
+		} else {
+			lua.lua_pop(l, 1)
+		}
+	}
+
 	lua.lua_pop(l, 1)
 
 	return PollDesc{
-		name:          name
-		value:         value
-		value_is_json: value_is_json
-		command:       command
-		interval:      interval
-		shell:         shell
+		name:            name
+		value:           value
+		value_is_json:   value_is_json
+		command:         command
+		interval:        interval
+		shell:           shell
+		listen_shell:    listen_shell
+		listen_override: listen_override
 	}
 }
 

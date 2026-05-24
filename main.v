@@ -104,6 +104,11 @@ fn setup(mut ad AppData) {
 			providers.start_poll(p.name, p.command, p.interval, shell, ad.store, ad.gen,
 				voidptr(ad.lua_rt))
 		}
+		if p.listen_shell != '' {
+			shell := if p.shell.len > 0 { p.shell } else { default_shell }
+			providers.start_listen(p.name, p.listen_shell, shell, p.listen_override,
+				ad.store, ad.gen, voidptr(ad.lua_rt))
+		}
 	}
 
 	mut content_refs := []&ContentData{}
