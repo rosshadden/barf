@@ -81,6 +81,8 @@ pub const gtk_style_provider_priority_application = u32(600)
 // Application
 pub fn C.gtk_application_new(id &char, flags int) &C.GtkApplication
 pub fn C.g_application_run(app &C.GtkApplication, argc int, argv voidptr) int
+pub fn C.g_application_hold(app &C.GtkApplication)
+pub fn C.g_application_release(app &C.GtkApplication)
 pub fn C.g_object_unref(obj voidptr)
 
 // Signals

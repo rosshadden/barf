@@ -246,6 +246,9 @@ fn on_activate(app &C.GtkApplication, data voidptr) {
 	unsafe {
 		ad.app = app
 	}
+	// keep the app alive across moments when every window is destroyed
+	// (e.g. monitor-removed on DPMS off), otherwise GtkApplication exits
+	C.g_application_hold(app)
 	setup(mut ad)
 
 	display := C.gdk_display_get_default()
