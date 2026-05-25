@@ -25,7 +25,7 @@ fn run_poll(name string, command cmd.Command, interval int, shell []string, stor
 		if gen.value != my_gen {
 			return
 		}
-		if value := cmd.exec(command, shell, lua_rt) {
+		if value := cmd.exec(command, shell, lua_rt, []) {
 			update := &PollUpdate{
 				name:  name
 				value: value

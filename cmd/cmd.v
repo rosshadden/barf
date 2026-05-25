@@ -138,7 +138,7 @@ pub fn fire(c Command, shell []string, rt_ptr voidptr, args []string) {
 	}
 }
 
-pub fn exec(c Command, shell []string, rt_ptr voidptr) ?string {
+pub fn exec(c Command, shell []string, rt_ptr voidptr, input []string) ?string {
 	match c.kind {
 		.none {
 			return none
@@ -147,12 +147,16 @@ pub fn exec(c Command, shell []string, rt_ptr voidptr) ?string {
 			if shell.len == 0 || c.str_val == '' {
 				return none
 			}
+			mut resolved := c.str_val
+			if input.len > 0 {
+				resolved = resolved.replace('{}', input[0])
+			}
 			mut p := os.new_process(shell[0])
 			mut args := []string{}
 			for a in shell[1..] {
 				args << a
 			}
-			args << c.str_val
+			args << resolved
 			p.set_args(args)
 			p.set_redirect_stdio()
 			p.wait()
@@ -165,7 +169,7 @@ pub fn exec(c Command, shell []string, rt_ptr voidptr) ?string {
 			return none
 		}
 		.lua_fn {
-			return call_lua(rt_ptr, c.lua_ref, c.self_ref, [])
+			return call_lua(rt_ptr, c.lua_ref, c.self_ref, input)
 		}
 	}
 }

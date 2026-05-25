@@ -52,17 +52,15 @@ fn run_listen(name string, listen_cmd string, shell []string, override cmd.Comma
 				line := partial[..idx].trim_space()
 				partial = partial[idx + 1..]
 				if override.is_set() {
-					if value := cmd.exec(override, shell, lua_rt) {
-						if value.len > 0 {
-							update := &ListenUpdate{
-								name:  name
-								value: value
-								store: store
-							}
-							C.g_idle_add(voidptr(listen_apply), voidptr(update))
+					if value := cmd.exec(override, shell, lua_rt, [line]) {
+						update := &ListenUpdate{
+							name:  name
+							value: value
+							store: store
 						}
+						C.g_idle_add(voidptr(listen_apply), voidptr(update))
 					}
-				} else if line.len > 0 {
+				} else {
 					update := &ListenUpdate{
 						name:  name
 						value: line
