@@ -85,10 +85,7 @@ pub fn make_widget(text string, var_name string, store &vars.VarStore, gen &vars
 		lua_rt:     lua_rt
 	}
 	if var_name != '' {
-		unsafe {
-			mut s := store
-			s.subscribe(var_name, on_var_change, voidptr(state))
-		}
+		store.subscribe(var_name, on_var_change, voidptr(state))
 	}
 	render(state)
 
@@ -101,6 +98,7 @@ pub fn make_widget(text string, var_name string, store &vars.VarStore, gen &vars
 			shell:           shell
 			lua_rt:          lua_rt
 		}
+		store.pin(voidptr(click_state))
 		eb := C.gtk_event_box_new()
 		C.gtk_container_add(eb, lbl)
 		C.gtk_widget_add_events(eb, gtk.gdk_button_press_mask)

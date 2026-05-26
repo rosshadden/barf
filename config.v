@@ -35,12 +35,12 @@ struct BarDesc {
 }
 
 struct PollDesc {
-	name          string
-	value         string
-	value_is_json bool
-	command       cmd.Command
-	interval      int = 1
-	shell         []string
+	name            string
+	value           string
+	value_is_json   bool
+	command         cmd.Command
+	interval        int = 1
+	shell           []string
 	listen_shell    string
 	listen_override cmd.Command
 }
@@ -1027,7 +1027,6 @@ fn lua_setup_fn(l &C.lua_State) int {
 	}
 	return 0
 }
-
 
 const string_mod_snippet = 'getmetatable("").__mod = function(a, b) if not b then return a elseif type(b) == "table" then return string.format(a, table.unpack(b)) else return string.format(a, b) end end'
 
