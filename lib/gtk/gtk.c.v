@@ -148,3 +148,42 @@ pub fn C.gtk_application_get_windows(app &C.GtkApplication) &C.GList
 pub fn C.g_timeout_add(interval u32, func voidptr, data voidptr) u32
 pub fn C.g_source_remove(tag u32) int
 pub fn C.g_idle_add(func voidptr, data voidptr) u32
+
+// GdkPixbuf
+pub const gdk_colorspace_rgb = 0
+pub const gdk_interp_bilinear = 2
+
+@[typedef]
+pub struct C.GdkPixbuf {}
+
+pub fn C.gdk_pixbuf_new(colorspace int, has_alpha int, bits_per_sample int, width int, height int) voidptr
+pub fn C.gdk_pixbuf_new_from_data(data &u8, colorspace int, has_alpha int, bits_per_sample int, width int, height int, rowstride int, destroy_fn voidptr, destroy_fn_data voidptr) voidptr
+pub fn C.gdk_pixbuf_get_pixels(pixbuf voidptr) &u8
+pub fn C.gdk_pixbuf_get_rowstride(pixbuf voidptr) int
+pub fn C.gdk_pixbuf_scale_simple(src voidptr, dest_width int, dest_height int, interp_type int) voidptr
+
+// GTK icon theme
+@[typedef]
+pub struct C.GtkIconTheme {}
+
+pub fn C.gtk_icon_theme_get_default() &C.GtkIconTheme
+pub fn C.gtk_icon_theme_lookup_icon(icon_theme &C.GtkIconTheme, icon_name &char, size int, flags int) voidptr
+pub fn C.gtk_icon_info_get_filename(icon_info voidptr) &char
+
+pub fn C.gdk_pixbuf_new_from_file_at_size(filename &char, width int, height int, error_ voidptr) voidptr
+
+// GTK icon size
+pub const gtk_icon_size_small_toolbar = 2
+
+// GTK image widget
+pub fn C.gtk_image_new_from_icon_name(icon_name &char, size int) &C.GtkWidget
+pub fn C.gtk_image_new_from_pixbuf(pixbuf voidptr) &C.GtkWidget
+pub fn C.gtk_image_set_from_icon_name(image &C.GtkWidget, icon_name &char, size int)
+pub fn C.gtk_image_set_from_pixbuf(image &C.GtkWidget, pixbuf voidptr)
+
+// GTK button
+pub const gtk_relief_none = 2
+
+pub fn C.gtk_button_new() &C.GtkWidget
+pub fn C.gtk_button_set_image(button &C.GtkWidget, image &C.GtkWidget)
+pub fn C.gtk_button_set_relief(button &C.GtkWidget, newstyle int)

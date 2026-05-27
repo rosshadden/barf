@@ -13,6 +13,7 @@ struct WidgetDesc {
 	text            string
 	var_name        string
 	format_ref      int = lua.lua_noref
+	icon_size       int = 16
 	on_click        cmd.Command
 	on_right_click  cmd.Command
 	on_middle_click cmd.Command
@@ -578,6 +579,20 @@ fn lua_workspaces_fn(l &C.lua_State) int {
 	return 1
 }
 
+fn lua_systray_fn(l &C.lua_State) int {
+	C.lua_createtable(l, 0, 2)
+	inst_idx := C.lua_gettop(l)
+
+	if C.lua_type(l, 1) == lua.lua_ttable {
+		copy_table_field(l, 1, inst_idx, c'icon_size')
+	}
+
+	C.lua_pushstring(l, c'systray')
+	C.lua_setfield(l, inst_idx, c'__vbar_type')
+
+	return 1
+}
+
 fn lua_var_fn(l &C.lua_State) int {
 	mut accum := get_config_accum(l)
 	accum.var_counter++
@@ -739,6 +754,13 @@ fn read_widget_from_table(l &C.lua_State, tbl_idx int) WidgetDesc {
 				on_click:        on_click
 				on_right_click:  on_right_click
 				on_middle_click: on_middle_click
+			}
+		}
+		'systray' {
+			WidgetDesc{
+				kind:      'systray'
+				self_ref:  self_ref
+				icon_size: read_int_field(l, tbl_idx, c'icon_size', 16)
 			}
 		}
 		else {
@@ -1097,6 +1119,9 @@ fn open_vbar_module(l &C.lua_State) int {
 
 	C.lua_pushcclosure(l, voidptr(lua_workspaces_fn), 0)
 	C.lua_setfield(l, mod_idx, c'workspaces')
+
+	C.lua_pushcclosure(l, voidptr(lua_systray_fn), 0)
+	C.lua_setfield(l, mod_idx, c'systray')
 
 	C.lua_pushcclosure(l, voidptr(lua_var_fn), 0)
 	C.lua_setfield(l, mod_idx, c'var')

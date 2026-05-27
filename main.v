@@ -9,6 +9,7 @@ import providers
 import vars
 import widgets.bar
 import widgets.label
+import widgets.systray
 import widgets.workspaces
 
 struct AppData {
@@ -69,6 +70,9 @@ fn make_widget(desc WidgetDesc, mon cmd.MonitorInfo, store &vars.VarStore, shell
 		'workspaces' {
 			workspaces.make_widget(desc.active_color, mon.name, on_click, on_right_click,
 				on_middle_click, shell, gen, lua_rt)
+		}
+		'systray' {
+			systray.make_widget(desc.icon_size)
 		}
 		else {
 			eprintln('vbar: unknown widget type: ${desc.kind}')
