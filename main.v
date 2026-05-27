@@ -61,15 +61,18 @@ fn make_widget(desc WidgetDesc, mon cmd.MonitorInfo, store &vars.VarStore, shell
 	on_click := desc.on_click.with_self_ref(new_self)
 	on_right_click := desc.on_right_click.with_self_ref(new_self)
 	on_middle_click := desc.on_middle_click.with_self_ref(new_self)
+	on_drag := desc.on_drag.with_self_ref(new_self)
+	on_drop := desc.on_drop.with_self_ref(new_self)
 
 	return match desc.kind {
 		'label' {
 			label.make_widget(desc.text, desc.var_name, store, gen, on_click, on_right_click,
-				on_middle_click, shell, lua_rt, desc.format_ref, new_self)
+				on_middle_click, on_drag, desc.drag_enabled, on_drop, shell, lua_rt,
+				desc.format_ref, new_self)
 		}
 		'workspaces' {
 			workspaces.make_widget(desc.active_color, mon.name, on_click, on_right_click,
-				on_middle_click, shell, gen, lua_rt)
+				on_middle_click, on_drop, shell, gen, lua_rt)
 		}
 		'systray' {
 			systray.make_widget(desc.icon_size)

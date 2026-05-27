@@ -25,6 +25,7 @@ struct WsClickState {
 	on_click        cmd.Command
 	on_right_click  cmd.Command
 	on_middle_click cmd.Command
+	on_drop         cmd.Command
 	shell           []string
 	lua_rt          voidptr
 }
@@ -39,6 +40,7 @@ mut:
 	on_click        cmd.Command
 	on_right_click  cmd.Command
 	on_middle_click cmd.Command
+	on_drop         cmd.Command
 	shell           []string
 	lua_rt          voidptr
 	refs            []&WsClickState
@@ -46,7 +48,7 @@ mut:
 	my_gen          int
 }
 
-pub fn make_widget(active_color string, monitor_name string, on_click cmd.Command, on_right_click cmd.Command, on_middle_click cmd.Command, shell []string, gen &vars.Generation, lua_rt voidptr) &C.GtkWidget {
+pub fn make_widget(active_color string, monitor_name string, on_click cmd.Command, on_right_click cmd.Command, on_middle_click cmd.Command, on_drop cmd.Command, shell []string, gen &vars.Generation, lua_rt voidptr) &C.GtkWidget {
 	container := C.gtk_box_new(gtk.gtk_orientation_horizontal, 4)
 	C.gtk_widget_set_name(container, c'workspaces')
 
@@ -57,6 +59,7 @@ pub fn make_widget(active_color string, monitor_name string, on_click cmd.Comman
 		on_click:        on_click
 		on_right_click:  on_right_click
 		on_middle_click: on_middle_click
+		on_drop:         on_drop
 		shell:           shell
 		lua_rt:          lua_rt
 		gen:             gen
@@ -102,6 +105,7 @@ fn render(mut state WorkspaceState) {
 
 	has_clicks := state.on_click.is_set() || state.on_right_click.is_set()
 		|| state.on_middle_click.is_set()
+	has_drop := state.on_drop.is_set()
 
 	for ws in state.workspaces {
 		if ws.id < 0 && ws.name.contains('special:') {
@@ -122,6 +126,7 @@ fn render(mut state WorkspaceState) {
 				on_click:        state.on_click
 				on_right_click:  state.on_right_click
 				on_middle_click: state.on_middle_click
+				on_drop:         state.on_drop
 				shell:           state.shell
 				lua_rt:          state.lua_rt
 			}
@@ -129,8 +134,8 @@ fn render(mut state WorkspaceState) {
 
 			eb := C.gtk_event_box_new()
 			C.gtk_container_add(eb, lbl)
-			C.gtk_widget_add_events(eb, gtk.gdk_button_press_mask)
-			C.g_signal_connect_data(eb, c'button-press-event', voidptr(ws_on_click),
+			C.gtk_widget_add_events(eb, gtk.gdk_button_press_mask | gtk.gdk_button_release_mask)
+			C.g_signal_connect_data(eb, c'button-release-event', voidptr(ws_on_click),
 				voidptr(click_state), unsafe { nil }, 0)
 			C.gtk_box_pack_start(state.container, eb, 0, 0, 0)
 		} else {

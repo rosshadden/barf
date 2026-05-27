@@ -18,6 +18,9 @@ struct WidgetDesc {
 	on_click        cmd.Command
 	on_right_click  cmd.Command
 	on_middle_click cmd.Command
+	on_drag         cmd.Command
+	on_drop         cmd.Command
+	drag_enabled    bool
 }
 
 struct BarDesc {
@@ -197,6 +200,34 @@ fn lua_middle_click_method(l &C.lua_State) int {
 	return 1
 }
 
+fn lua_drag_method(l &C.lua_State) int {
+	if C.lua_type(l, 1) != lua.lua_ttable {
+		return 0
+	}
+	t := C.lua_type(l, 2)
+	if t == lua.lua_tstring || t == lua.lua_tfunction {
+		C.lua_pushvalue(l, 2)
+		C.lua_setfield(l, 1, c'drag')
+	}
+	C.lua_pushboolean(l, 1)
+	C.lua_setfield(l, 1, c'drag_enabled')
+	C.lua_pushvalue(l, 1)
+	return 1
+}
+
+fn lua_drop_method(l &C.lua_State) int {
+	if C.lua_type(l, 1) != lua.lua_ttable {
+		return 0
+	}
+	t := C.lua_type(l, 2)
+	if t == lua.lua_tstring || t == lua.lua_tfunction {
+		C.lua_pushvalue(l, 2)
+		C.lua_setfield(l, 1, c'drop')
+	}
+	C.lua_pushvalue(l, 1)
+	return 1
+}
+
 fn lua_scroll_method(l &C.lua_State) int {
 	if C.lua_type(l, 1) != lua.lua_ttable {
 		return 0
@@ -211,7 +242,7 @@ fn lua_scroll_method(l &C.lua_State) int {
 }
 
 fn setup_label_metatable(l &C.lua_State) {
-	C.lua_createtable(l, 0, 4)
+	C.lua_createtable(l, 0, 6)
 	mt_idx := C.lua_gettop(l)
 	C.lua_pushvalue(l, mt_idx)
 	C.lua_setfield(l, mt_idx, c'__index')
@@ -221,11 +252,15 @@ fn setup_label_metatable(l &C.lua_State) {
 	C.lua_setfield(l, mt_idx, c'right_click')
 	C.lua_pushcclosure(l, voidptr(lua_middle_click_method), 0)
 	C.lua_setfield(l, mt_idx, c'middle_click')
+	C.lua_pushcclosure(l, voidptr(lua_drag_method), 0)
+	C.lua_setfield(l, mt_idx, c'drag')
+	C.lua_pushcclosure(l, voidptr(lua_drop_method), 0)
+	C.lua_setfield(l, mt_idx, c'drop')
 	C.lua_setfield(l, lua.lua_registryindex, c'vbar.label.mt')
 }
 
 fn setup_workspaces_metatable(l &C.lua_State) {
-	C.lua_createtable(l, 0, 4)
+	C.lua_createtable(l, 0, 5)
 	mt_idx := C.lua_gettop(l)
 	C.lua_pushvalue(l, mt_idx)
 	C.lua_setfield(l, mt_idx, c'__index')
@@ -235,6 +270,8 @@ fn setup_workspaces_metatable(l &C.lua_State) {
 	C.lua_setfield(l, mt_idx, c'right_click')
 	C.lua_pushcclosure(l, voidptr(lua_middle_click_method), 0)
 	C.lua_setfield(l, mt_idx, c'middle_click')
+	C.lua_pushcclosure(l, voidptr(lua_drop_method), 0)
+	C.lua_setfield(l, mt_idx, c'drop')
 	C.lua_setfield(l, lua.lua_registryindex, c'vbar.workspaces.mt')
 }
 
@@ -305,7 +342,7 @@ fn lua_var_newindex(l &C.lua_State) int {
 }
 
 fn setup_var_metatable(l &C.lua_State) {
-	C.lua_createtable(l, 0, 7)
+	C.lua_createtable(l, 0, 12)
 	mt_idx := C.lua_gettop(l)
 	C.lua_pushvalue(l, mt_idx)
 	C.lua_setfield(l, mt_idx, c'__index')
@@ -319,6 +356,16 @@ fn setup_var_metatable(l &C.lua_State) {
 	C.lua_setfield(l, mt_idx, c'listen')
 	C.lua_pushcclosure(l, voidptr(lua_var_value_fn), 0)
 	C.lua_setfield(l, mt_idx, c'value')
+	C.lua_pushcclosure(l, voidptr(lua_click_method), 0)
+	C.lua_setfield(l, mt_idx, c'click')
+	C.lua_pushcclosure(l, voidptr(lua_right_click_method), 0)
+	C.lua_setfield(l, mt_idx, c'right_click')
+	C.lua_pushcclosure(l, voidptr(lua_middle_click_method), 0)
+	C.lua_setfield(l, mt_idx, c'middle_click')
+	C.lua_pushcclosure(l, voidptr(lua_drag_method), 0)
+	C.lua_setfield(l, mt_idx, c'drag')
+	C.lua_pushcclosure(l, voidptr(lua_drop_method), 0)
+	C.lua_setfield(l, mt_idx, c'drop')
 	C.lua_pushcclosure(l, voidptr(lua_var_newindex), 0)
 	C.lua_setfield(l, mt_idx, c'__newindex')
 	C.lua_setfield(l, lua.lua_registryindex, c'vbar.var.mt')
@@ -619,7 +666,8 @@ fn lua_label_fn(l &C.lua_State) int {
 		C.lua_pushstring(l, raw)
 		C.lua_setfield(l, inst_idx, c'text')
 	} else if arg_type == lua.lua_ttable {
-		for key in [c'text', c'click', c'right_click', c'middle_click'] {
+		for key in [c'text', c'click', c'right_click', c'middle_click', c'drag', c'drag_enabled',
+			c'drop'] {
 			copy_table_field(l, 1, inst_idx, key)
 		}
 	}
@@ -637,7 +685,7 @@ fn lua_workspaces_fn(l &C.lua_State) int {
 	inst_idx := C.lua_gettop(l)
 
 	if C.lua_type(l, 1) == lua.lua_ttable {
-		for key in [c'active_color', c'click', c'right_click', c'middle_click'] {
+		for key in [c'active_color', c'click', c'right_click', c'middle_click', c'drop'] {
 			copy_table_field(l, 1, inst_idx, key)
 		}
 	}
@@ -775,6 +823,11 @@ fn read_widget_from_table(l &C.lua_State, tbl_idx int) WidgetDesc {
 	on_click := read_method_command(l, tbl_idx, c'click', self_ref)
 	on_right_click := read_method_command(l, tbl_idx, c'right_click', self_ref)
 	on_middle_click := read_method_command(l, tbl_idx, c'middle_click', self_ref)
+	on_drag := read_method_command(l, tbl_idx, c'drag', self_ref)
+	on_drop := read_method_command(l, tbl_idx, c'drop', self_ref)
+	t_drag_en := C.lua_getfield(l, tbl_idx, c'drag_enabled')
+	drag_enabled := t_drag_en == lua.lua_tboolean && C.lua_toboolean(l, -1) != 0
+	lua.lua_pop(l, 1)
 
 	return match kind {
 		'var' {
@@ -794,6 +847,9 @@ fn read_widget_from_table(l &C.lua_State, tbl_idx int) WidgetDesc {
 				on_click:        on_click
 				on_right_click:  on_right_click
 				on_middle_click: on_middle_click
+				on_drag:         on_drag
+				drag_enabled:    drag_enabled
+				on_drop:         on_drop
 			}
 		}
 		'label' {
@@ -815,6 +871,9 @@ fn read_widget_from_table(l &C.lua_State, tbl_idx int) WidgetDesc {
 				on_click:        on_click
 				on_right_click:  on_right_click
 				on_middle_click: on_middle_click
+				on_drag:         on_drag
+				drag_enabled:    drag_enabled
+				on_drop:         on_drop
 			}
 		}
 		'workspaces' {
@@ -825,6 +884,7 @@ fn read_widget_from_table(l &C.lua_State, tbl_idx int) WidgetDesc {
 				on_click:        on_click
 				on_right_click:  on_right_click
 				on_middle_click: on_middle_click
+				on_drop:         on_drop
 			}
 		}
 		'systray' {

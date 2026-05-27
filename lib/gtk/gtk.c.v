@@ -187,3 +187,48 @@ pub const gtk_relief_none = 2
 pub fn C.gtk_button_new() &C.GtkWidget
 pub fn C.gtk_button_set_image(button &C.GtkWidget, image &C.GtkWidget)
 pub fn C.gtk_button_set_relief(button &C.GtkWidget, newstyle int)
+
+// GTK drag and drop
+@[typedef]
+pub struct C.GtkTargetEntry {
+pub:
+	target &char
+	flags  u32
+	info   u32
+}
+
+@[typedef]
+pub struct C.GtkSelectionData {}
+
+@[typedef]
+pub struct C.GdkEventCrossing {
+pub:
+	@type      int
+	window     voidptr
+	send_event i8
+	subwindow  voidptr
+	time_      u32
+	x          f64
+	y          f64
+	x_root     f64
+	y_root     f64
+	mode       int
+	detail     int
+	focus      int
+	state      u32
+}
+
+pub const gdk_enter_notify_mask = 4096
+pub const gdk_action_copy = 2
+pub const gtk_dest_default_all = 7
+pub const gdk_button1_mask = 256
+pub const gdk_button_release_mask = 512
+
+pub fn C.gtk_drag_source_set(widget &C.GtkWidget, start_button_mask int, targets &C.GtkTargetEntry, n_targets int, actions int)
+pub fn C.gtk_drag_source_add_text_targets(widget &C.GtkWidget)
+pub fn C.gtk_drag_dest_set(widget &C.GtkWidget, flags int, targets &C.GtkTargetEntry, n_targets int, actions int)
+pub fn C.gtk_drag_dest_add_text_targets(widget &C.GtkWidget)
+pub fn C.gtk_selection_data_get_text(selection_data &C.GtkSelectionData) &u8
+pub fn C.gtk_selection_data_set_text(selection_data &C.GtkSelectionData, str &char, len int)
+pub fn C.gtk_label_get_text(label &C.GtkWidget) &char
+pub fn C.g_free(ptr voidptr)
