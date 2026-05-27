@@ -354,8 +354,6 @@ fn setup_var_metatable(l &C.lua_State) {
 	C.lua_setfield(l, mt_idx, c'poll')
 	C.lua_pushcclosure(l, voidptr(lua_var_listen_fn), 0)
 	C.lua_setfield(l, mt_idx, c'listen')
-	C.lua_pushcclosure(l, voidptr(lua_var_value_fn), 0)
-	C.lua_setfield(l, mt_idx, c'value')
 	C.lua_pushcclosure(l, voidptr(lua_click_method), 0)
 	C.lua_setfield(l, mt_idx, c'click')
 	C.lua_pushcclosure(l, voidptr(lua_right_click_method), 0)
@@ -584,41 +582,53 @@ fn lua_var_set_fn(l &C.lua_State) int {
 	if C.lua_type(l, 1) != lua.lua_ttable {
 		return 0
 	}
-
-	C.lua_getfield(l, 1, c'name')
-	if C.lua_type(l, -1) != lua.lua_tstring {
-		lua.lua_pop(l, 1)
-		return 0
-	}
-	raw_name := C.lua_tolstring(l, -1, unsafe { nil })
-	name := unsafe { cstring_to_vstring(raw_name) }
-	lua.lua_pop(l, 1)
-
 	val_type := C.lua_type(l, 2)
 	is_json := val_type == lua.lua_ttable || val_type == lua.lua_tnumber
 		|| val_type == lua.lua_tboolean
-	value := if is_json {
-		lua_value_to_json(l, 2, 0)
+	if val_type == lua.lua_tstring {
+		raw := C.lua_tolstring(l, 2, unsafe { nil })
+		C.lua_pushstring(l, raw)
+		C.lua_setfield(l, 1, c'value')
+	} else if is_json {
+		json_val := lua_value_to_json(l, 2, 0)
+		C.lua_pushstring(l, json_val.str)
+		C.lua_setfield(l, 1, c'value')
+		C.lua_pushinteger(l, 1)
+		C.lua_setfield(l, 1, c'value_is_json')
 	} else {
-		lua_value_to_string(l, 2)
-	}
-
-	C.lua_getfield(l, lua.lua_registryindex, c'vbar.store')
-	store_ptr := C.lua_touserdata(l, -1)
-	lua.lua_pop(l, 1)
-	if store_ptr == unsafe { nil } {
 		return 0
 	}
 
-	update := &VarSetUpdate{
-		name:    name
-		value:   value
-		is_json: is_json
-		store:   store_ptr
-	}
-	C.g_idle_add(voidptr(var_set_apply), voidptr(update))
+	C.lua_getfield(l, 1, c'name')
+	if C.lua_type(l, -1) == lua.lua_tstring {
+		raw_name := C.lua_tolstring(l, -1, unsafe { nil })
+		name := unsafe { cstring_to_vstring(raw_name) }
+		lua.lua_pop(l, 1)
 
-	return 0
+		C.lua_getfield(l, lua.lua_registryindex, c'vbar.store')
+		store_ptr := C.lua_touserdata(l, -1)
+		lua.lua_pop(l, 1)
+
+		if store_ptr != unsafe { nil } {
+			value := if is_json {
+				lua_value_to_json(l, 2, 0)
+			} else {
+				lua_value_to_string(l, 2)
+			}
+			update := &VarSetUpdate{
+				name:    name
+				value:   value
+				is_json: is_json
+				store:   store_ptr
+			}
+			C.g_idle_add(voidptr(var_set_apply), voidptr(update))
+		}
+	} else {
+		lua.lua_pop(l, 1)
+	}
+
+	C.lua_pushvalue(l, 1)
+	return 1
 }
 
 // --- Entity constructors ---
@@ -740,28 +750,6 @@ fn lua_var_fn(l &C.lua_State) int {
 	return 1
 }
 
-fn lua_var_value_fn(l &C.lua_State) int {
-	if C.lua_type(l, 1) != lua.lua_ttable {
-		return 0
-	}
-	val_type := C.lua_type(l, 2)
-	if val_type == lua.lua_tstring {
-		raw := C.lua_tolstring(l, 2, unsafe { nil })
-		C.lua_pushstring(l, raw)
-		C.lua_setfield(l, 1, c'value')
-	} else if val_type == lua.lua_ttable || val_type == lua.lua_tnumber
-		|| val_type == lua.lua_tboolean {
-		json_val := lua_value_to_json(l, 2, 0)
-		C.lua_pushstring(l, json_val.str)
-		C.lua_setfield(l, 1, c'value')
-		C.lua_pushinteger(l, 1)
-		C.lua_setfield(l, 1, c'value_is_json')
-	} else {
-		return 0
-	}
-	C.lua_pushvalue(l, 1)
-	return 1
-}
 
 fn lua_var_poll_fn(l &C.lua_State) int {
 	if C.lua_type(l, 1) != lua.lua_ttable {

@@ -13,12 +13,12 @@ vbar.setup({
 -- :poll every 5s corrects any missed events (e.g. player started while vbar was loading).
 -- Both can be used together when they produce the same output format.
 local media = vbar.var("media")
-	:value("")
+	:set("")
 	:listen([[playerctl --follow metadata --format "{{artist}} - {{title}}" 2>/dev/null]])
 	:poll([[playerctl metadata --format "{{artist}} - {{title}}" 2>/dev/null || echo ""]], { interval = 5 })
 
 local volume = vbar.var("volume")
-	:value("0%")
+	:set("0%")
 	:poll(function()
 		return vbar.exec([[echo "$(ponymix get-volume)%"]])
 	end, { interval = 1 })
