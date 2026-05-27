@@ -5,6 +5,7 @@ import lib.gtk
 import lib.lua
 import os
 import vars
+import x.json2
 
 struct WidgetDesc {
 	kind            string
@@ -460,6 +461,76 @@ fn lua_value_to_json(l &C.lua_State, idx int, depth int) string {
 		return '{' + parts.join(',') + '}'
 	}
 	return 'null'
+}
+
+fn json_any_to_lua(l &C.lua_State, val json2.Any) {
+	match val {
+		string {
+			C.lua_pushstring(l, val.str)
+		}
+		i64 {
+			C.lua_pushinteger(l, val)
+		}
+		int {
+			C.lua_pushinteger(l, i64(val))
+		}
+		f64 {
+			C.lua_pushnumber(l, val)
+		}
+		f32 {
+			C.lua_pushnumber(l, f64(val))
+		}
+		bool {
+			C.lua_pushboolean(l, if val { 1 } else { 0 })
+		}
+		json2.Null {
+			C.lua_pushnil(l)
+		}
+		[]json2.Any {
+			C.lua_createtable(l, val.len, 0)
+			tbl_idx := C.lua_gettop(l)
+			for i, item in val {
+				json_any_to_lua(l, item)
+				C.lua_rawseti(l, tbl_idx, i64(i + 1))
+			}
+		}
+		map[string]json2.Any {
+			C.lua_createtable(l, 0, val.len)
+			tbl_idx := C.lua_gettop(l)
+			for k, v in val {
+				C.lua_pushstring(l, k.str)
+				json_any_to_lua(l, v)
+				C.lua_rawset(l, tbl_idx)
+			}
+		}
+		else {
+			C.lua_pushnil(l)
+		}
+	}
+}
+
+fn lua_json_encode_fn(l &C.lua_State) int {
+	s := lua_value_to_json(l, 1, 0)
+	C.lua_pushstring(l, s.str)
+	return 1
+}
+
+fn lua_json_decode_fn(l &C.lua_State) int {
+	if C.lua_type(l, 1) != lua.lua_tstring {
+		C.lua_pushnil(l)
+		C.lua_pushstring(l, c'expected string argument')
+		return 2
+	}
+	raw := C.lua_tolstring(l, 1, unsafe { nil })
+	s := unsafe { cstring_to_vstring(raw) }
+	val := json2.decode[json2.Any](s) or {
+		C.lua_pushnil(l)
+		msg := err.msg()
+		C.lua_pushstring(l, msg.str)
+		return 2
+	}
+	json_any_to_lua(l, val)
+	return 1
 }
 
 fn lua_var_set_fn(l &C.lua_State) int {
@@ -1134,6 +1205,14 @@ fn open_vbar_module(l &C.lua_State) int {
 
 	C.lua_pushcclosure(l, voidptr(lua_debug_fn), 0)
 	C.lua_setfield(l, mod_idx, c'debug')
+
+	C.lua_createtable(l, 0, 2)
+	json_tbl_idx := C.lua_gettop(l)
+	C.lua_pushcclosure(l, voidptr(lua_json_encode_fn), 0)
+	C.lua_setfield(l, json_tbl_idx, c'encode')
+	C.lua_pushcclosure(l, voidptr(lua_json_decode_fn), 0)
+	C.lua_setfield(l, json_tbl_idx, c'decode')
+	C.lua_setfield(l, mod_idx, c'json')
 
 	descs := global_var_descs()
 	C.lua_createtable(l, 0, descs.len)

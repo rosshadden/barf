@@ -67,6 +67,7 @@ pub fn C.lua_rawlen(L &C.lua_State, idx int) u64
 // Set functions
 pub fn C.lua_setfield(L &C.lua_State, idx int, k &char)
 pub fn C.lua_rawset(L &C.lua_State, idx int)
+pub fn C.lua_rawseti(L &C.lua_State, idx int, n i64)
 
 // Table construction & iteration
 pub fn C.lua_createtable(L &C.lua_State, narr int, nrec int)
@@ -81,6 +82,7 @@ pub fn C.lua_touserdata(L &C.lua_State, idx int) voidptr
 
 // Boolean
 pub fn C.lua_toboolean(L &C.lua_State, idx int) int
+pub fn C.lua_pushboolean(L &C.lua_State, b int)
 
 // Read functions (real functions underlying macros)
 pub fn C.lua_tolstring(L &C.lua_State, idx int, len voidptr) &char
