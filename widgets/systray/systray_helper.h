@@ -10,33 +10,33 @@
 /*
  * Singleton state pointer — stored in this translation unit's static storage.
  * systray.v is the only file that includes this header, so there is exactly
- * one copy of vbar_sni_state per build.
+ * one copy of barf_sni_state per build.
  */
-static void *vbar_sni_state = NULL;
-static inline void *vbar_sni_get(void)       { return vbar_sni_state; }
-static inline void  vbar_sni_set(void *p)    { vbar_sni_state = p; }
+static void *barf_sni_state = NULL;
+static inline void *barf_sni_get(void)       { return barf_sni_state; }
+static inline void  barf_sni_set(void *p)    { barf_sni_state = p; }
 
 // Forward declarations for V-exported callbacks (defined in systray.v with @[export]).
 // Uses void* and char* to match what V generates for voidptr and &char params.
-extern void   vbar_systray_method_call(void *conn, char *sender, char *obj_path,
+extern void   barf_systray_method_call(void *conn, char *sender, char *obj_path,
                                        char *iface, char *method, void *params,
                                        void *invocation, void *user_data);
-extern void  *vbar_systray_get_property(void *conn, char *sender, char *obj_path,
+extern void  *barf_systray_get_property(void *conn, char *sender, char *obj_path,
                                         char *iface, char *prop, void *error,
                                         void *user_data);
 
 /* Returns pointer to the static GDBusInterfaceVTable for the watcher object. */
-static inline const GDBusInterfaceVTable *vbar_systray_vtable(void) {
+static inline const GDBusInterfaceVTable *barf_systray_vtable(void) {
 	static const GDBusInterfaceVTable tbl = {
-		(GDBusInterfaceMethodCallFunc)vbar_systray_method_call,
-		(GDBusInterfaceGetPropertyFunc)vbar_systray_get_property,
+		(GDBusInterfaceMethodCallFunc)barf_systray_method_call,
+		(GDBusInterfaceGetPropertyFunc)barf_systray_get_property,
 		NULL,
 	};
 	return &tbl;
 }
 
 /* Introspection XML for org.kde.StatusNotifierWatcher */
-static const gchar vbar_watcher_xml[] =
+static const gchar barf_watcher_xml[] =
 	"<node>"
 	"  <interface name='org.kde.StatusNotifierWatcher'>"
 	"    <method name='RegisterStatusNotifierItem'>"
@@ -59,10 +59,10 @@ static const gchar vbar_watcher_xml[] =
 	"</node>";
 
 /* Parses the XML once and returns the cached GDBusInterfaceInfo *. */
-static inline GDBusInterfaceInfo *vbar_get_watcher_interface(void) {
+static inline GDBusInterfaceInfo *barf_get_watcher_interface(void) {
 	static GDBusInterfaceInfo *iface = NULL;
 	if (!iface) {
-		GDBusNodeInfo *node = g_dbus_node_info_new_for_xml(vbar_watcher_xml, NULL);
+		GDBusNodeInfo *node = g_dbus_node_info_new_for_xml(barf_watcher_xml, NULL);
 		if (node) {
 			iface = g_dbus_node_info_lookup_interface(node, "org.kde.StatusNotifierWatcher");
 			if (iface)
@@ -75,28 +75,28 @@ static inline GDBusInterfaceInfo *vbar_get_watcher_interface(void) {
 
 /* GVariant tuple helpers */
 
-static inline GVariant *vbar_v_s_tuple(const gchar *s) {
+static inline GVariant *barf_v_s_tuple(const gchar *s) {
 	GVariant *c[1] = { g_variant_new_string(s) };
 	return g_variant_new_tuple(c, 1);
 }
 
-static inline GVariant *vbar_v_su_tuple(const gchar *s, guint32 u) {
+static inline GVariant *barf_v_su_tuple(const gchar *s, guint32 u) {
 	GVariant *c[2] = { g_variant_new_string(s), g_variant_new_uint32(u) };
 	return g_variant_new_tuple(c, 2);
 }
 
-static inline GVariant *vbar_v_ss_tuple(const gchar *s1, const gchar *s2) {
+static inline GVariant *barf_v_ss_tuple(const gchar *s1, const gchar *s2) {
 	GVariant *c[2] = { g_variant_new_string(s1), g_variant_new_string(s2) };
 	return g_variant_new_tuple(c, 2);
 }
 
-static inline GVariant *vbar_v_ii_tuple(gint32 x, gint32 y) {
+static inline GVariant *barf_v_ii_tuple(gint32 x, gint32 y) {
 	GVariant *c[2] = { g_variant_new_int32(x), g_variant_new_int32(y) };
 	return g_variant_new_tuple(c, 2);
 }
 
 /* Convert SNI ARGB32 big-endian pixel data to a GdkPixbuf (RGBA). */
-static inline GdkPixbuf *vbar_argb_to_pixbuf(const guint8 *data, gint w, gint h) {
+static inline GdkPixbuf *barf_argb_to_pixbuf(const guint8 *data, gint w, gint h) {
 	GdkPixbuf *pb = gdk_pixbuf_new(GDK_COLORSPACE_RGB, TRUE, 8, w, h);
 	if (!pb) return NULL;
 	gint   rs = gdk_pixbuf_get_rowstride(pb);
@@ -118,7 +118,7 @@ static inline GdkPixbuf *vbar_argb_to_pixbuf(const guint8 *data, gint w, gint h)
  * Pick the best-fit frame from an a(iiay) IconPixmap GVariant and
  * return a GdkPixbuf scaled to target_size, or NULL.
  */
-static inline GdkPixbuf *vbar_parse_icon_pixmap(GVariant *pixmap_v, gint target_size) {
+static inline GdkPixbuf *barf_parse_icon_pixmap(GVariant *pixmap_v, gint target_size) {
 	if (!pixmap_v) return NULL;
 	gsize n = g_variant_n_children(pixmap_v);
 	if (n == 0) return NULL;
@@ -145,7 +145,7 @@ static inline GdkPixbuf *vbar_parse_icon_pixmap(GVariant *pixmap_v, gint target_
 
 	GdkPixbuf *pb = NULL;
 	if (raw && (gsize)(w * h * 4) <= data_len) {
-		pb = vbar_argb_to_pixbuf(raw, w, h);
+		pb = barf_argb_to_pixbuf(raw, w, h);
 		if (pb && w != target_size) {
 			GdkPixbuf *sc = gdk_pixbuf_scale_simple(pb, target_size, target_size,
 			                                         GDK_INTERP_BILINEAR);
@@ -165,7 +165,7 @@ static inline GdkPixbuf *vbar_parse_icon_pixmap(GVariant *pixmap_v, gint target_
  * loaders entirely (avoids the broken glycin/bwrap loader on this system).
  * Returns a GdkPixbuf scaled to target_size, or NULL on failure.
  */
-static inline GdkPixbuf *vbar_png_via_cairo(const char *path, gint target_size) {
+static inline GdkPixbuf *barf_png_via_cairo(const char *path, gint target_size) {
 	cairo_surface_t *surf = cairo_image_surface_create_from_png(path);
 	if (!surf || cairo_surface_status(surf) != CAIRO_STATUS_SUCCESS) {
 		if (surf) cairo_surface_destroy(surf);

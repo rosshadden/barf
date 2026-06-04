@@ -8,9 +8,9 @@ pub type VarUpdateFn = fn (string, string, voidptr)
 pub fn sock_path() string {
 	runtime := os.getenv('XDG_RUNTIME_DIR')
 	if runtime != '' {
-		return os.join_path(runtime, 'vbar.sock')
+		return os.join_path(runtime, 'barf.sock')
 	}
-	return '/tmp/vbar.sock'
+	return '/tmp/barf.sock'
 }
 
 fn make_addr(path string) C.sockaddr_un {
@@ -76,17 +76,17 @@ pub fn serve(store &vars.VarStore, update_fn VarUpdateFn, update_data voidptr) {
 	C.unlink(path.str)
 	fd := C.socket(af_unix, sock_stream, 0)
 	if fd < 0 {
-		eprintln('vbar: ipc socket failed')
+		eprintln('barf: ipc socket failed')
 		return
 	}
 	addr := make_addr(path)
 	if C.bind(fd, &addr, sizeof(addr)) < 0 {
-		eprintln('vbar: ipc bind failed: ${path}')
+		eprintln('barf: ipc bind failed: ${path}')
 		C.close(fd)
 		return
 	}
 	if C.listen(fd, 8) < 0 {
-		eprintln('vbar: ipc listen failed')
+		eprintln('barf: ipc listen failed')
 		C.close(fd)
 		return
 	}
@@ -104,12 +104,12 @@ pub fn run_client(args []string) ! {
 	path := sock_path()
 	fd := C.socket(af_unix, sock_stream, 0)
 	if fd < 0 {
-		return error('vbar: socket() failed')
+		return error('barf: socket() failed')
 	}
 	addr := make_addr(path)
 	if C.connect(fd, &addr, sizeof(addr)) < 0 {
 		C.close(fd)
-		return error('vbar is not running (could not connect to ${path})')
+		return error('barf is not running (could not connect to ${path})')
 	}
 	msg := args.join(' ') + '\n'
 	C.write(fd, msg.str, usize(msg.len))

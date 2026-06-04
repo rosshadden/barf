@@ -96,7 +96,7 @@ fn call_lua(rt_ptr voidptr, ref int, self_ref int, args []string) ?string {
 		raw := C.lua_tolstring(rt.l, -1, unsafe { nil })
 		err := unsafe { cstring_to_vstring(raw) }
 		lua.lua_pop(rt.l, 1)
-		eprintln('vbar: lua command error: ${err}')
+		eprintln('barf: lua command error: ${err}')
 		return none
 	}
 	if C.lua_type(rt.l, -1) == lua.lua_tstring {
@@ -251,7 +251,7 @@ pub fn call_var_format(rt_ptr voidptr, self_ref int, format_ref int, value strin
 		raw := C.lua_tolstring(l, -1, unsafe { nil })
 		err := unsafe { cstring_to_vstring(raw) }
 		lua.lua_pop(l, 1)
-		eprintln('vbar: format error: ${err}')
+		eprintln('barf: format error: ${err}')
 		return none
 	}
 	if C.lua_type(l, -1) == lua.lua_tstring {
@@ -277,5 +277,5 @@ pub fn bind_store(rt &LuaRuntime, store voidptr) {
 		return
 	}
 	C.lua_pushlightuserdata(r.l, store)
-	C.lua_setfield(r.l, lua.lua_registryindex, c'vbar.store')
+	C.lua_setfield(r.l, lua.lua_registryindex, c'barf.store')
 }

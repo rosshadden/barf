@@ -78,7 +78,7 @@ fn make_widget(desc WidgetDesc, mon cmd.MonitorInfo, store &vars.VarStore, shell
 			systray.make_widget(desc.icon_size)
 		}
 		else {
-			eprintln('vbar: unknown widget type: ${desc.kind}')
+			eprintln('barf: unknown widget type: ${desc.kind}')
 			unsafe { nil }
 		}
 	}
@@ -268,13 +268,13 @@ fn on_activate(app &C.GtkApplication, data voidptr) {
 fn watch_config(dir string, data voidptr) {
 	fd := C.inotify_init1(inotify.in_cloexec)
 	if fd < 0 {
-		eprintln('vbar: inotify_init1 failed')
+		eprintln('barf: inotify_init1 failed')
 		return
 	}
 	wd := C.inotify_add_watch(fd, dir.str,
 		inotify.in_close_write | inotify.in_moved_to | inotify.in_create)
 	if wd < 0 {
-		eprintln('vbar: inotify_add_watch failed for ${dir}')
+		eprintln('barf: inotify_add_watch failed for ${dir}')
 		C.close(fd)
 		return
 	}
@@ -302,21 +302,21 @@ fn watch_config(dir string, data voidptr) {
 
 fn main() {
 	if os.args.len < 2 {
-		eprintln('usage: vbar daemon | update <name>=<value> | get <name> | state')
+		eprintln('usage: barf daemon | update <name>=<value> | get <name> | state')
 		exit(1)
 	}
 	match os.args[1] {
 		'daemon' {}
 		'update', 'get', 'state' {
 			ipc.run_client(os.args[1..]) or {
-				eprintln('vbar: ${err}')
+				eprintln('barf: ${err}')
 				exit(1)
 			}
 			return
 		}
 		else {
-			eprintln('vbar: unknown command: ${os.args[1]}')
-			eprintln('usage: vbar daemon | update <name>=<value> | get <name> | state')
+			eprintln('barf: unknown command: ${os.args[1]}')
+			eprintln('usage: barf daemon | update <name>=<value> | get <name> | state')
 			exit(1)
 		}
 	}
@@ -339,7 +339,7 @@ fn main() {
 	spawn watch_config(config_dir(), voidptr(ad))
 	spawn ipc.serve(store, ipc_set_var, voidptr(store))
 
-	app := C.gtk_application_new(c'io.vbar', 0)
+	app := C.gtk_application_new(c'io.barf', 0)
 	C.g_signal_connect_data(app, c'activate', voidptr(on_activate), voidptr(ad), unsafe { nil }, 0)
 	status := C.g_application_run(app, 0, unsafe { nil })
 	C.g_object_unref(app)

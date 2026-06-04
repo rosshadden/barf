@@ -7,16 +7,16 @@ import os
 #pkgconfig cairo
 #include "systray_helper.h"
 
-fn C.vbar_get_watcher_interface() voidptr
-fn C.vbar_systray_vtable() voidptr
-fn C.vbar_v_s_tuple(s &char) voidptr
-fn C.vbar_v_su_tuple(s &char, u u32) voidptr
-fn C.vbar_v_ss_tuple(s1 &char, s2 &char) voidptr
-fn C.vbar_v_ii_tuple(x i32, y i32) voidptr
-fn C.vbar_parse_icon_pixmap(pixmap_v voidptr, target_size int) voidptr
-fn C.vbar_png_via_cairo(path &char, target_size int) voidptr
-fn C.vbar_sni_get() voidptr
-fn C.vbar_sni_set(p voidptr)
+fn C.barf_get_watcher_interface() voidptr
+fn C.barf_systray_vtable() voidptr
+fn C.barf_v_s_tuple(s &char) voidptr
+fn C.barf_v_su_tuple(s &char, u u32) voidptr
+fn C.barf_v_ss_tuple(s1 &char, s2 &char) voidptr
+fn C.barf_v_ii_tuple(x i32, y i32) voidptr
+fn C.barf_parse_icon_pixmap(pixmap_v voidptr, target_size int) voidptr
+fn C.barf_png_via_cairo(path &char, target_size int) voidptr
+fn C.barf_sni_get() voidptr
+fn C.barf_sni_set(p voidptr)
 
 struct SystrayClickState {
 	conn    voidptr
@@ -41,7 +41,7 @@ mut:
 }
 
 fn get_state() &SystrayState {
-	return unsafe { &SystrayState(C.vbar_sni_get()) }
+	return unsafe { &SystrayState(C.barf_sni_get()) }
 }
 
 // parse_sni_service splits "service /path" or returns default path "/StatusNotifierItem".
@@ -90,7 +90,7 @@ fn create_icon(dict voidptr, icon_size int) &C.GtkWidget {
 			path := find_icon_file(name, icon_size)
 			if path != '' {
 				// Use Cairo's libpng directly — bypasses broken GDK pixbuf file loaders.
-				pb := C.vbar_png_via_cairo(path.str, icon_size)
+				pb := C.barf_png_via_cairo(path.str, icon_size)
 				if pb != unsafe { nil } {
 					img := C.gtk_image_new_from_pixbuf(pb)
 					C.g_object_unref(pb)
@@ -102,7 +102,7 @@ fn create_icon(dict voidptr, icon_size int) &C.GtkWidget {
 
 	pixmap_v := C.g_variant_lookup_value(dict, c'IconPixmap', unsafe { nil })
 	if pixmap_v != unsafe { nil } {
-		pb := C.vbar_parse_icon_pixmap(pixmap_v, icon_size)
+		pb := C.barf_parse_icon_pixmap(pixmap_v, icon_size)
 		C.g_variant_unref(pixmap_v)
 		if pb != unsafe { nil } {
 			img := C.gtk_image_new_from_pixbuf(pb)
@@ -119,7 +119,7 @@ fn on_systray_button(widget voidptr, event voidptr, data voidptr) int {
 	ev := unsafe { &C.GdkEventButton(event) }
 	method := if ev.button == 3 { c'ContextMenu' } else { c'Activate' }
 	C.g_dbus_connection_call_sync(cs.conn, cs.service.str, cs.path.str,
-		c'org.kde.StatusNotifierItem', method, C.vbar_v_ii_tuple(0, 0), unsafe { nil },
+		c'org.kde.StatusNotifierItem', method, C.barf_v_ii_tuple(0, 0), unsafe { nil },
 		gio.g_dbus_call_flags_none, 1000, unsafe { nil }, unsafe { nil })
 	return 1
 }
@@ -128,7 +128,7 @@ fn on_systray_button(widget voidptr, event voidptr, data voidptr) int {
 fn make_item_button(conn voidptr, service string, obj_path string, icon_size int) (voidptr, &SystrayClickState) {
 	reply := C.g_dbus_connection_call_sync(conn, service.str, obj_path.str,
 		c'org.freedesktop.DBus.Properties', c'GetAll',
-		C.vbar_v_s_tuple(c'org.kde.StatusNotifierItem'), unsafe { nil },
+		C.barf_v_s_tuple(c'org.kde.StatusNotifierItem'), unsafe { nil },
 		gio.g_dbus_call_flags_none, 3000, unsafe { nil }, unsafe { nil })
 	if reply == unsafe { nil } {
 		return unsafe { nil }, unsafe { nil }
@@ -202,9 +202,9 @@ fn remove_item(service string) {
 
 // --- Exported GDBus callbacks ---
 
-// vbar_systray_method_call handles RegisterStatusNotifierItem / RegisterStatusNotifierHost.
-@[export: 'vbar_systray_method_call']
-fn vbar_systray_method_call(conn voidptr, sender &char, obj_path &char, iface &char, method &char, params voidptr, invocation voidptr, data voidptr) {
+// barf_systray_method_call handles RegisterStatusNotifierItem / RegisterStatusNotifierHost.
+@[export: 'barf_systray_method_call']
+fn barf_systray_method_call(conn voidptr, sender &char, obj_path &char, iface &char, method &char, params voidptr, invocation voidptr, data voidptr) {
 	method_str := unsafe { cstring_to_vstring(method) }
 	if method_str == 'RegisterStatusNotifierItem' {
 		arg := C.g_variant_get_child_value(params, 0)
@@ -220,7 +220,7 @@ fn vbar_systray_method_call(conn voidptr, sender &char, obj_path &char, iface &c
 		}
 
 		// Emit StatusNotifierItemRegistered signal
-		sig_params := C.vbar_v_s_tuple(service.str)
+		sig_params := C.barf_v_s_tuple(service.str)
 		C.g_dbus_connection_emit_signal(conn, unsafe { nil }, c'/StatusNotifierWatcher',
 			c'org.kde.StatusNotifierWatcher', c'StatusNotifierItemRegistered', sig_params,
 			unsafe { nil })
@@ -230,9 +230,9 @@ fn vbar_systray_method_call(conn voidptr, sender &char, obj_path &char, iface &c
 	C.g_dbus_method_invocation_return_value(invocation, unsafe { nil })
 }
 
-// vbar_systray_get_property services the watcher's D-Bus properties.
-@[export: 'vbar_systray_get_property']
-fn vbar_systray_get_property(conn voidptr, sender &char, obj_path &char, iface &char, prop &char, error_ voidptr, data voidptr) voidptr {
+// barf_systray_get_property services the watcher's D-Bus properties.
+@[export: 'barf_systray_get_property']
+fn barf_systray_get_property(conn voidptr, sender &char, obj_path &char, iface &char, prop &char, error_ voidptr, data voidptr) voidptr {
 	prop_str := unsafe { cstring_to_vstring(prop) }
 	state := get_state()
 	match prop_str {
@@ -260,9 +260,9 @@ fn vbar_systray_get_property(conn voidptr, sender &char, obj_path &char, iface &
 	return unsafe { nil }
 }
 
-// vbar_systray_name_owner_changed removes items whose D-Bus service disappeared.
-@[export: 'vbar_systray_name_owner_changed']
-fn vbar_systray_name_owner_changed(conn voidptr, sender &char, obj_path &char, iface &char, signal &char, params voidptr, data voidptr) {
+// barf_systray_name_owner_changed removes items whose D-Bus service disappeared.
+@[export: 'barf_systray_name_owner_changed']
+fn barf_systray_name_owner_changed(conn voidptr, sender &char, obj_path &char, iface &char, signal &char, params voidptr, data voidptr) {
 	name_v := C.g_variant_get_child_value(params, 0)
 	new_owner_v := C.g_variant_get_child_value(params, 2)
 	name_raw := C.g_variant_get_string(name_v, unsafe { nil })
@@ -277,9 +277,9 @@ fn vbar_systray_name_owner_changed(conn voidptr, sender &char, obj_path &char, i
 	}
 }
 
-// vbar_systray_item_registered handles StatusNotifierItemRegistered from an external watcher.
-@[export: 'vbar_systray_item_registered']
-fn vbar_systray_item_registered(conn voidptr, sender &char, obj_path &char, iface &char, signal &char, params voidptr, data voidptr) {
+// barf_systray_item_registered handles StatusNotifierItemRegistered from an external watcher.
+@[export: 'barf_systray_item_registered']
+fn barf_systray_item_registered(conn voidptr, sender &char, obj_path &char, iface &char, signal &char, params voidptr, data voidptr) {
 	arg := C.g_variant_get_child_value(params, 0)
 	raw := C.g_variant_get_string(arg, unsafe { nil })
 	svc_str := unsafe { cstring_to_vstring(raw) }
@@ -288,9 +288,9 @@ fn vbar_systray_item_registered(conn voidptr, sender &char, obj_path &char, ifac
 	add_item(conn, service, path)
 }
 
-// vbar_systray_item_unregistered handles StatusNotifierItemUnregistered from an external watcher.
-@[export: 'vbar_systray_item_unregistered']
-fn vbar_systray_item_unregistered(conn voidptr, sender &char, obj_path &char, iface &char, signal &char, params voidptr, data voidptr) {
+// barf_systray_item_unregistered handles StatusNotifierItemUnregistered from an external watcher.
+@[export: 'barf_systray_item_unregistered']
+fn barf_systray_item_unregistered(conn voidptr, sender &char, obj_path &char, iface &char, signal &char, params voidptr, data voidptr) {
 	arg := C.g_variant_get_child_value(params, 0)
 	raw := C.g_variant_get_string(arg, unsafe { nil })
 	svc_str := unsafe { cstring_to_vstring(raw) }
@@ -304,7 +304,7 @@ fn vbar_systray_item_unregistered(conn voidptr, sender &char, obj_path &char, if
 fn init_dbus(icon_size int) {
 	conn := C.g_bus_get_sync(gio.g_bus_type_session, unsafe { nil }, unsafe { nil })
 	if conn == unsafe { nil } {
-		eprintln('vbar systray: cannot connect to session bus')
+		eprintln('barf systray: cannot connect to session bus')
 		return
 	}
 
@@ -312,15 +312,15 @@ fn init_dbus(icon_size int) {
 		conn:      conn
 		icon_size: icon_size
 	}
-	C.vbar_sni_set(voidptr(state))
+	C.barf_sni_set(voidptr(state))
 
 	// Try to own org.kde.StatusNotifierWatcher
 	reply := C.g_dbus_connection_call_sync(conn, c'org.freedesktop.DBus', c'/org/freedesktop/DBus',
-		c'org.freedesktop.DBus', c'RequestName', C.vbar_v_su_tuple(c'org.kde.StatusNotifierWatcher',
+		c'org.freedesktop.DBus', c'RequestName', C.barf_v_su_tuple(c'org.kde.StatusNotifierWatcher',
 		u32(0)), unsafe { nil }, gio.g_dbus_call_flags_none, 5000, unsafe { nil }, unsafe { nil })
 
 	if reply == unsafe { nil } {
-		eprintln('vbar systray: RequestName failed')
+		eprintln('barf systray: RequestName failed')
 		return
 	}
 
@@ -331,38 +331,38 @@ fn init_dbus(icon_size int) {
 
 	if result == 1 || result == 4 {
 		// We own the name — register the watcher object
-		iface := C.vbar_get_watcher_interface()
-		vtable := C.vbar_systray_vtable()
+		iface := C.barf_get_watcher_interface()
+		vtable := C.barf_systray_vtable()
 		C.g_dbus_connection_register_object(conn, c'/StatusNotifierWatcher', iface, vtable,
 			voidptr(state), unsafe { nil }, unsafe { nil })
 
 		// Watch for service disappearances
 		C.g_dbus_connection_signal_subscribe(conn, unsafe { nil }, c'org.freedesktop.DBus',
 			c'NameOwnerChanged', c'/org/freedesktop/DBus', unsafe { nil },
-			gio.g_dbus_signal_flags_none, voidptr(vbar_systray_name_owner_changed), voidptr(state),
+			gio.g_dbus_signal_flags_none, voidptr(barf_systray_name_owner_changed), voidptr(state),
 			unsafe { nil })
 	} else {
 		// Another watcher is running — connect as host
 		C.g_dbus_connection_signal_subscribe(conn, unsafe { nil },
 			c'org.kde.StatusNotifierWatcher', c'StatusNotifierItemRegistered',
 			c'/StatusNotifierWatcher', unsafe { nil }, gio.g_dbus_signal_flags_none,
-			voidptr(vbar_systray_item_registered), voidptr(state), unsafe { nil })
+			voidptr(barf_systray_item_registered), voidptr(state), unsafe { nil })
 
 		C.g_dbus_connection_signal_subscribe(conn, unsafe { nil },
 			c'org.kde.StatusNotifierWatcher', c'StatusNotifierItemUnregistered',
 			c'/StatusNotifierWatcher', unsafe { nil }, gio.g_dbus_signal_flags_none,
-			voidptr(vbar_systray_item_unregistered), voidptr(state), unsafe { nil })
+			voidptr(barf_systray_item_unregistered), voidptr(state), unsafe { nil })
 
 		// Register ourselves as a host
 		unique_name := C.g_dbus_connection_get_unique_name(conn)
 		C.g_dbus_connection_call_sync(conn, c'org.kde.StatusNotifierWatcher',
 			c'/StatusNotifierWatcher', c'org.kde.StatusNotifierWatcher',
-			c'RegisterStatusNotifierHost', C.vbar_v_s_tuple(unique_name), unsafe { nil },
+			c'RegisterStatusNotifierHost', C.barf_v_s_tuple(unique_name), unsafe { nil },
 			gio.g_dbus_call_flags_none, 1000, unsafe { nil }, unsafe { nil })
 
 		// Fetch already-registered items
 		items_reply := C.g_dbus_connection_call_sync(conn, c'org.kde.StatusNotifierWatcher',
-			c'/StatusNotifierWatcher', c'org.freedesktop.DBus.Properties', c'Get', C.vbar_v_ss_tuple(c'org.kde.StatusNotifierWatcher',
+			c'/StatusNotifierWatcher', c'org.freedesktop.DBus.Properties', c'Get', C.barf_v_ss_tuple(c'org.kde.StatusNotifierWatcher',
 			c'RegisteredStatusNotifierItems'), unsafe { nil }, gio.g_dbus_call_flags_none, 2000,
 			unsafe { nil }, unsafe { nil })
 
@@ -387,7 +387,7 @@ fn init_dbus(icon_size int) {
 
 // make_widget creates the systray horizontal box, initialising D-Bus on first call.
 pub fn make_widget(icon_size int) &C.GtkWidget {
-	if C.vbar_sni_get() == unsafe { nil } {
+	if C.barf_sni_get() == unsafe { nil } {
 		init_dbus(icon_size)
 	}
 

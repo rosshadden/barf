@@ -153,7 +153,7 @@ fn read_method_command(l &C.lua_State, tbl_idx int, key &char, self_ref int) cmd
 }
 
 fn get_config_accum(l &C.lua_State) &ConfigAccum {
-	C.lua_getfield(l, lua.lua_registryindex, c'vbar.config')
+	C.lua_getfield(l, lua.lua_registryindex, c'barf.config')
 	ptr := C.lua_touserdata(l, -1)
 	lua.lua_pop(l, 1)
 	return unsafe { &ConfigAccum(ptr) }
@@ -256,7 +256,7 @@ fn setup_label_metatable(l &C.lua_State) {
 	C.lua_setfield(l, mt_idx, c'drag')
 	C.lua_pushcclosure(l, voidptr(lua_drop_method), 0)
 	C.lua_setfield(l, mt_idx, c'drop')
-	C.lua_setfield(l, lua.lua_registryindex, c'vbar.label.mt')
+	C.lua_setfield(l, lua.lua_registryindex, c'barf.label.mt')
 }
 
 fn setup_workspaces_metatable(l &C.lua_State) {
@@ -272,7 +272,7 @@ fn setup_workspaces_metatable(l &C.lua_State) {
 	C.lua_setfield(l, mt_idx, c'middle_click')
 	C.lua_pushcclosure(l, voidptr(lua_drop_method), 0)
 	C.lua_setfield(l, mt_idx, c'drop')
-	C.lua_setfield(l, lua.lua_registryindex, c'vbar.workspaces.mt')
+	C.lua_setfield(l, lua.lua_registryindex, c'barf.workspaces.mt')
 }
 
 fn setup_bar_metatable(l &C.lua_State) {
@@ -284,7 +284,7 @@ fn setup_bar_metatable(l &C.lua_State) {
 	C.lua_setfield(l, mt_idx, c'click')
 	C.lua_pushcclosure(l, voidptr(lua_scroll_method), 0)
 	C.lua_setfield(l, mt_idx, c'scroll')
-	C.lua_setfield(l, lua.lua_registryindex, c'vbar.bar.mt')
+	C.lua_setfield(l, lua.lua_registryindex, c'barf.bar.mt')
 }
 
 fn apply_metatable(l &C.lua_State, inst_idx int, registry_key &char) {
@@ -319,9 +319,9 @@ fn lua_var_format_method(l &C.lua_State) int {
 	}
 
 	C.lua_pushstring(l, c'label')
-	C.lua_setfield(l, tbl_idx, c'__vbar_type')
+	C.lua_setfield(l, tbl_idx, c'__barf_type')
 
-	C.lua_getfield(l, lua.lua_registryindex, c'vbar.label.mt')
+	C.lua_getfield(l, lua.lua_registryindex, c'barf.label.mt')
 	C.lua_setmetatable(l, tbl_idx)
 	return 1
 }
@@ -366,7 +366,7 @@ fn setup_var_metatable(l &C.lua_State) {
 	C.lua_setfield(l, mt_idx, c'drop')
 	C.lua_pushcclosure(l, voidptr(lua_var_newindex), 0)
 	C.lua_setfield(l, mt_idx, c'__newindex')
-	C.lua_setfield(l, lua.lua_registryindex, c'vbar.var.mt')
+	C.lua_setfield(l, lua.lua_registryindex, c'barf.var.mt')
 }
 
 struct VarSetUpdate {
@@ -605,7 +605,7 @@ fn lua_var_set_fn(l &C.lua_State) int {
 		name := unsafe { cstring_to_vstring(raw_name) }
 		lua.lua_pop(l, 1)
 
-		C.lua_getfield(l, lua.lua_registryindex, c'vbar.store')
+		C.lua_getfield(l, lua.lua_registryindex, c'barf.store')
 		store_ptr := C.lua_touserdata(l, -1)
 		lua.lua_pop(l, 1)
 
@@ -654,9 +654,9 @@ fn lua_bar_fn(l &C.lua_State) int {
 	}
 
 	C.lua_pushstring(l, c'bar')
-	C.lua_setfield(l, inst_idx, c'__vbar_type')
+	C.lua_setfield(l, inst_idx, c'__barf_type')
 
-	apply_metatable(l, inst_idx, c'vbar.bar.mt')
+	apply_metatable(l, inst_idx, c'barf.bar.mt')
 
 	C.lua_pushvalue(l, inst_idx)
 	ref := C.luaL_ref(l, lua.lua_registryindex)
@@ -683,9 +683,9 @@ fn lua_label_fn(l &C.lua_State) int {
 	}
 
 	C.lua_pushstring(l, c'label')
-	C.lua_setfield(l, inst_idx, c'__vbar_type')
+	C.lua_setfield(l, inst_idx, c'__barf_type')
 
-	apply_metatable(l, inst_idx, c'vbar.label.mt')
+	apply_metatable(l, inst_idx, c'barf.label.mt')
 
 	return 1
 }
@@ -701,9 +701,9 @@ fn lua_workspaces_fn(l &C.lua_State) int {
 	}
 
 	C.lua_pushstring(l, c'workspaces')
-	C.lua_setfield(l, inst_idx, c'__vbar_type')
+	C.lua_setfield(l, inst_idx, c'__barf_type')
 
-	apply_metatable(l, inst_idx, c'vbar.workspaces.mt')
+	apply_metatable(l, inst_idx, c'barf.workspaces.mt')
 
 	return 1
 }
@@ -717,7 +717,7 @@ fn lua_systray_fn(l &C.lua_State) int {
 	}
 
 	C.lua_pushstring(l, c'systray')
-	C.lua_setfield(l, inst_idx, c'__vbar_type')
+	C.lua_setfield(l, inst_idx, c'__barf_type')
 
 	return 1
 }
@@ -739,9 +739,9 @@ fn lua_var_fn(l &C.lua_State) int {
 	C.lua_setfield(l, inst_idx, c'name')
 
 	C.lua_pushstring(l, c'var')
-	C.lua_setfield(l, inst_idx, c'__vbar_type')
+	C.lua_setfield(l, inst_idx, c'__barf_type')
 
-	apply_metatable(l, inst_idx, c'vbar.var.mt')
+	apply_metatable(l, inst_idx, c'barf.var.mt')
 
 	C.lua_pushvalue(l, inst_idx)
 	ref := C.luaL_ref(l, lua.lua_registryindex)
@@ -800,7 +800,7 @@ fn lua_var_listen_fn(l &C.lua_State) int {
 // --- Deferred reading (after script finishes) ---
 
 fn read_widget_from_table(l &C.lua_State, tbl_idx int) WidgetDesc {
-	kind := read_string_field(l, tbl_idx, c'__vbar_type', '')
+	kind := read_string_field(l, tbl_idx, c'__barf_type', '')
 	if kind == '' {
 		return WidgetDesc{}
 	}
@@ -883,7 +883,7 @@ fn read_widget_from_table(l &C.lua_State, tbl_idx int) WidgetDesc {
 			}
 		}
 		else {
-			eprintln('vbar: unknown widget type in config: ${kind}')
+			eprintln('barf: unknown widget type in config: ${kind}')
 			WidgetDesc{}
 		}
 	}
@@ -1086,7 +1086,7 @@ fn lua_debug_fn(l &C.lua_State) int {
 	}
 	body := parts.join('\t')
 	mut p := os.new_process('notify-send')
-	p.set_args(['vbar', body])
+	p.set_args(['barf', body])
 	p.wait()
 	p.close()
 	return 0
@@ -1094,14 +1094,14 @@ fn lua_debug_fn(l &C.lua_State) int {
 
 fn lua_exec_fn(l &C.lua_State) int {
 	if C.lua_type(l, 1) != lua.lua_tstring {
-		C.luaL_error(l, c'vbar.exec: expected string command')
+		C.luaL_error(l, c'barf.exec: expected string command')
 		return 0
 	}
 	raw_cmd := C.lua_tolstring(l, 1, unsafe { nil })
 	command := unsafe { cstring_to_vstring(raw_cmd) }
 
 	mut shell := []string{}
-	t := C.lua_getfield(l, lua.lua_registryindex, c'vbar.shell')
+	t := C.lua_getfield(l, lua.lua_registryindex, c'barf.shell')
 	if t == lua.lua_ttable {
 		shell_idx := C.lua_gettop(l)
 		n := int(C.lua_rawlen(l, shell_idx))
@@ -1140,7 +1140,7 @@ fn lua_exec_fn(l &C.lua_State) int {
 
 fn lua_setup_fn(l &C.lua_State) int {
 	if C.lua_type(l, 1) != lua.lua_ttable {
-		C.luaL_error(l, c'vbar.setup: expected table argument')
+		C.luaL_error(l, c'barf.setup: expected table argument')
 		return 0
 	}
 	mut accum := get_config_accum(l)
@@ -1148,7 +1148,7 @@ fn lua_setup_fn(l &C.lua_State) int {
 	if shell.len > 0 {
 		accum.shell = shell
 		C.lua_getfield(l, 1, c'shell')
-		C.lua_setfield(l, lua.lua_registryindex, c'vbar.shell')
+		C.lua_setfield(l, lua.lua_registryindex, c'barf.shell')
 	}
 	font_family := read_string_field(l, 1, c'font_family', '')
 	if font_family != '' {
@@ -1192,27 +1192,27 @@ struct GlobalVarDesc {
 fn global_var_descs() []GlobalVarDesc {
 	return [
 		GlobalVarDesc{
-			name:     'vbar.time'
+			name:     'barf.time'
 			command:  'date +%H:%M:%S'
 			interval: 1
 		},
 		GlobalVarDesc{
-			name:     'vbar.date'
+			name:     'barf.date'
 			command:  'date +%Y-%m-%d'
 			interval: 3600
 		},
 		GlobalVarDesc{
-			name:     'vbar.battery'
+			name:     'barf.battery'
 			command:  'cat /sys/class/power_supply/BAT0/capacity 2>/dev/null || echo N/A'
 			interval: 10
 		},
 		GlobalVarDesc{
-			name:     'vbar.cpu'
+			name:     'barf.cpu'
 			command:  'grep "cpu " /proc/stat | awk \'{u=$2+$4;t=$2+$3+$4+$5;print int(u/t*100)"%"}\''
 			interval: 2
 		},
 		GlobalVarDesc{
-			name:     'vbar.mem'
+			name:     'barf.mem'
 			command:  'free -m | awk \'/Mem:/{print int($3/$2*100)"%"}\''
 			interval: 2
 		},
@@ -1221,7 +1221,7 @@ fn global_var_descs() []GlobalVarDesc {
 
 // --- Module registration ---
 
-fn open_vbar_module(l &C.lua_State) int {
+fn open_barf_module(l &C.lua_State) int {
 	C.lua_createtable(l, 0, 8)
 	mod_idx := C.lua_gettop(l)
 
@@ -1271,9 +1271,9 @@ fn open_vbar_module(l &C.lua_State) int {
 		C.lua_pushstring(l, gv.name.str)
 		C.lua_setfield(l, v_idx, c'name')
 		C.lua_pushstring(l, c'var')
-		C.lua_setfield(l, v_idx, c'__vbar_type')
-		apply_metatable(l, v_idx, c'vbar.var.mt')
-		lua_key := gv.name.all_after('vbar.')
+		C.lua_setfield(l, v_idx, c'__barf_type')
+		apply_metatable(l, v_idx, c'barf.var.mt')
+		lua_key := gv.name.all_after('barf.')
 		C.lua_setfield(l, vars_tbl_idx, lua_key.str)
 	}
 	C.lua_setfield(l, mod_idx, c'vars')
@@ -1286,7 +1286,7 @@ fn open_vbar_module(l &C.lua_State) int {
 fn config_dir() string {
 	xdg := os.getenv('XDG_CONFIG_HOME')
 	base := if xdg != '' { xdg } else { os.join_path(os.home_dir(), '.config') }
-	return os.join_path(base, 'vbar')
+	return os.join_path(base, 'barf')
 }
 
 fn load_config() (Config, &C.lua_State) {
@@ -1298,7 +1298,7 @@ fn load_config() (Config, &C.lua_State) {
 
 	l := C.luaL_newstate()
 	if l == unsafe { nil } {
-		eprintln('vbar: failed to create Lua state')
+		eprintln('barf: failed to create Lua state')
 		return default_config(), unsafe { nil }
 	}
 
@@ -1307,16 +1307,16 @@ fn load_config() (Config, &C.lua_State) {
 
 	mut accum := ConfigAccum{}
 	C.lua_pushlightuserdata(l, voidptr(&accum))
-	C.lua_setfield(l, lua.lua_registryindex, c'vbar.config')
+	C.lua_setfield(l, lua.lua_registryindex, c'barf.config')
 
-	C.luaL_requiref(l, c'vbar', voidptr(open_vbar_module), 0)
+	C.luaL_requiref(l, c'barf', voidptr(open_barf_module), 0)
 	lua.lua_pop(l, 1)
 
 	load_status := C.luaL_loadfilex(l, config_path.str, unsafe { nil })
 	if load_status != lua.lua_ok {
 		raw := C.lua_tolstring(l, -1, unsafe { nil })
 		err := unsafe { cstring_to_vstring(raw) }
-		eprintln('vbar: config syntax error: ${err}')
+		eprintln('barf: config syntax error: ${err}')
 		C.lua_close(l)
 		return default_config(), unsafe { nil }
 	}
@@ -1325,7 +1325,7 @@ fn load_config() (Config, &C.lua_State) {
 	if call_status != lua.lua_ok {
 		raw := C.lua_tolstring(l, -1, unsafe { nil })
 		err := unsafe { cstring_to_vstring(raw) }
-		eprintln('vbar: config runtime error: ${err}')
+		eprintln('barf: config runtime error: ${err}')
 		C.lua_close(l)
 		return default_config(), unsafe { nil }
 	}
@@ -1372,7 +1372,7 @@ fn default_config() Config {
 				}]
 				center: [WidgetDesc{
 					kind: 'label'
-					text: 'vbar'
+					text: 'barf'
 				}]
 			},
 		]

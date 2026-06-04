@@ -24,11 +24,11 @@ pub const lua_tstring = 4
 pub const lua_ttable = 5
 
 // Special indices (wrapped from C macros — values differ between Lua versions)
-fn C.vbar_lua_registryindex() int
-fn C.vbar_lua_multret() int
+fn C.barf_lua_registryindex() int
+fn C.barf_lua_multret() int
 
-pub const lua_registryindex = C.vbar_lua_registryindex()
-pub const lua_multret = C.vbar_lua_multret()
+pub const lua_registryindex = C.barf_lua_registryindex()
+pub const lua_multret = C.barf_lua_multret()
 
 // Return codes
 pub const lua_ok = 0
@@ -37,9 +37,9 @@ pub const lua_ok = 0
 pub const lua_tfunction = 6
 
 // Reference constants
-fn C.vbar_lua_noref() int
+fn C.barf_lua_noref() int
 
-pub const lua_noref = C.vbar_lua_noref()
+pub const lua_noref = C.barf_lua_noref()
 
 // State lifecycle
 pub fn C.luaL_newstate() &C.lua_State
