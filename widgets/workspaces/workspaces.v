@@ -80,7 +80,9 @@ fn poll(mut state WorkspaceState) {
 		} else {
 			state.workspaces = all_ws
 		}
-		state.workspaces.sort(a.id < b.id)
+		state.workspaces.sort_with_compare(fn (a &HyprWorkspace, b &HyprWorkspace) int {
+			return a.id - b.id
+		})
 	}
 
 	mon_result := os.execute('hyprctl monitors -j')
