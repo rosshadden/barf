@@ -75,6 +75,12 @@ pub const gdk_scroll_smooth = 4
 // Orientation
 pub const gtk_orientation_horizontal = 0
 
+// Align (GtkAlign)
+pub const gtk_align_fill = 0
+pub const gtk_align_start = 1
+pub const gtk_align_end = 2
+pub const gtk_align_center = 3
+
 // Style priority
 pub const gtk_style_provider_priority_application = u32(600)
 
@@ -232,3 +238,10 @@ pub fn C.gtk_selection_data_get_text(selection_data &C.GtkSelectionData) &u8
 pub fn C.gtk_selection_data_set_text(selection_data &C.GtkSelectionData, str &char, len int)
 pub fn C.gtk_label_get_text(label &C.GtkWidget) &char
 pub fn C.g_free(ptr voidptr)
+
+// GtkComboBoxText
+pub fn C.gtk_combo_box_text_new() &C.GtkWidget
+pub fn C.gtk_combo_box_text_append_text(combo_box &C.GtkWidget, text &char)
+pub fn C.gtk_combo_box_text_get_active_text(combo_box &C.GtkWidget) &char
+pub fn C.gtk_combo_box_set_active(combo_box &C.GtkWidget, index int)
+pub fn C.gtk_combo_box_get_active(combo_box &C.GtkWidget) int

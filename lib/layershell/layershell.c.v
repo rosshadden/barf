@@ -18,6 +18,8 @@ pub const edge_bottom = 3
 
 // Keyboard mode
 pub const keyboard_mode_none = 0
+pub const keyboard_mode_exclusive = 1
+pub const keyboard_mode_on_demand = 2
 
 pub fn C.gtk_layer_is_supported() int
 pub fn C.gtk_layer_init_for_window(window &C.GtkWindow)

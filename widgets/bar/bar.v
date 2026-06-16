@@ -57,6 +57,15 @@ fn apply_css(cfg BarConfig) {
 	css := '
 window { background-color: ${cfg.bg_color}; }
 label { color: ${cfg.fg_color}; font-family: ${cfg.font_family}; font-size: ${cfg.font_size}; padding: 0 8px; }
+combobox, combobox box.linked { background-color: ${cfg.bg_color}; min-height: 0; margin: 0; }
+combobox button.combo, combobox button.combo:hover, combobox button.combo:active, combobox button.combo:checked, combobox button.combo:focus { background-color: ${cfg.bg_color}; background-image: none; color: ${cfg.fg_color}; border: none; box-shadow: none; text-shadow: none; padding: 0 6px; min-height: 0; margin: 0; font-family: ${cfg.font_family}; font-size: ${cfg.font_size}; }
+combobox button.combo box { min-height: 0; margin: 0; padding: 0; }
+combobox button.combo box cellview { color: ${cfg.fg_color}; min-height: 0; margin: 0; padding: 0; }
+combobox button.combo arrow { color: ${cfg.fg_color}; min-width: 12px; min-height: 0; margin: 0; padding: 0; }
+combobox window.popup, combobox window.popup menu, combobox window.popup contents { background-color: ${cfg.bg_color}; }
+combobox window.popup menu menuitem { color: ${cfg.fg_color}; background-color: ${cfg.bg_color}; padding: 2px 8px; font-family: ${cfg.font_family}; font-size: ${cfg.font_size}; }
+combobox window.popup menu menuitem:hover { background-color: ${cfg.fg_color}; color: ${cfg.bg_color}; }
+combobox window.popup cellview { color: ${cfg.fg_color}; background-color: ${cfg.bg_color}; }
 '
 	provider := C.gtk_css_provider_new()
 	C.gtk_css_provider_load_from_data(provider, css.str, i64(css.len), unsafe { nil })

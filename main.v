@@ -8,6 +8,7 @@ import os
 import providers
 import vars
 import widgets.bar
+import widgets.combo
 import widgets.label
 import widgets.systray
 import widgets.workspaces
@@ -76,6 +77,10 @@ fn make_widget(desc WidgetDesc, mon cmd.MonitorInfo, store &vars.VarStore, shell
 		}
 		'systray' {
 			systray.make_widget(desc.icon_size)
+		}
+		'combo' {
+			combo.make_widget(desc.items, desc.var_name, store, gen, desc.on_change, shell,
+				lua_rt)
 		}
 		else {
 			eprintln('barf: unknown widget type: ${desc.kind}')

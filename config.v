@@ -13,6 +13,7 @@ struct WidgetDesc {
 	active_color    string = '#89b4fa'
 	text            string
 	var_name        string
+	items           []string
 	format_ref      int = lua.lua_noref
 	icon_size       int = 16
 	on_click        cmd.Command
@@ -20,6 +21,7 @@ struct WidgetDesc {
 	on_middle_click cmd.Command
 	on_drag         cmd.Command
 	on_drop         cmd.Command
+	on_change       cmd.Command
 	drag_enabled    bool
 }
 
@@ -722,6 +724,36 @@ fn lua_systray_fn(l &C.lua_State) int {
 	return 1
 }
 
+fn lua_combo_fn(l &C.lua_State) int {
+	C.lua_createtable(l, 0, 4)
+	inst_idx := C.lua_gettop(l)
+
+	if C.lua_type(l, 1) == lua.lua_ttable {
+		copy_table_field(l, 1, inst_idx, c'items')
+		copy_table_field(l, 1, inst_idx, c'onchange')
+		// var can be a string (var name) or a var table object
+		t := C.lua_getfield(l, 1, c'var')
+		if t == lua.lua_tstring {
+			C.lua_setfield(l, inst_idx, c'var')
+		} else if t == lua.lua_ttable {
+			t2 := C.lua_getfield(l, -1, c'name')
+			if t2 == lua.lua_tstring {
+				C.lua_setfield(l, inst_idx, c'var')
+			} else {
+				lua.lua_pop(l, 1)
+			}
+			lua.lua_pop(l, 1)
+		} else {
+			lua.lua_pop(l, 1)
+		}
+	}
+
+	C.lua_pushstring(l, c'combo')
+	C.lua_setfield(l, inst_idx, c'__barf_type')
+
+	return 1
+}
+
 fn lua_var_fn(l &C.lua_State) int {
 	mut accum := get_config_accum(l)
 	accum.var_counter++
@@ -880,6 +912,15 @@ fn read_widget_from_table(l &C.lua_State, tbl_idx int) WidgetDesc {
 				kind:      'systray'
 				self_ref:  self_ref
 				icon_size: read_int_field(l, tbl_idx, c'icon_size', 16)
+			}
+		}
+		'combo' {
+			WidgetDesc{
+				kind:      'combo'
+				self_ref:  self_ref
+				items:     read_string_array_field(l, tbl_idx, c'items')
+				var_name:  read_string_field(l, tbl_idx, c'var', '')
+				on_change: read_method_command(l, tbl_idx, c'onchange', self_ref)
 			}
 		}
 		else {
@@ -1241,6 +1282,9 @@ fn open_barf_module(l &C.lua_State) int {
 
 	C.lua_pushcclosure(l, voidptr(lua_systray_fn), 0)
 	C.lua_setfield(l, mod_idx, c'systray')
+
+	C.lua_pushcclosure(l, voidptr(lua_combo_fn), 0)
+	C.lua_setfield(l, mod_idx, c'combo')
 
 	C.lua_pushcclosure(l, voidptr(lua_var_fn), 0)
 	C.lua_setfield(l, mod_idx, c'var')
